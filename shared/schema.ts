@@ -438,6 +438,64 @@ export type ArgumentStatement = typeof argumentStatements.$inferSelect;
 export type InsertArgumentStatement = z.infer<typeof insertArgumentStatementSchema>;
 
 // ================================================================================
+// CORE DOCUMENTS TABLE - Analyzed philosophical works with Q&As
+// Format: CORE_AUTHOR_N (e.g., CORE_FREUD_27)
+// These are PRIMARY sources - all queries should check here FIRST
+// ================================================================================
+export const coreDocuments = pgTable("core_documents", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  documentTitle: text("document_title").notNull(), // CORE_AUTHOR_N format
+  author: text("author").notNull(), // Normalized author name (lowercase)
+  authorDisplayName: text("author_display_name").notNull(), // Display name (e.g., "Sigmund Freud")
+  sourceFilename: text("source_filename"), // Original uploaded file
+  wordCount: integer("word_count").default(0),
+  
+  // Structured analysis content
+  outline: jsonb("outline").notNull().$type<{
+    title: string;
+    sections: { heading: string; summary: string; subsections?: string[] }[];
+  }>(),
+  positions: jsonb("positions").notNull().$type<{
+    position: string;
+    importance: number; // 1-10
+    context: string;
+  }[]>(),
+  arguments: jsonb("arguments").notNull().$type<{
+    argumentType: string;
+    premises: string[];
+    conclusion: string;
+    importance: number;
+  }[]>(),
+  trends: jsonb("trends").notNull().$type<{
+    trend: string;
+    description: string;
+    examples: string[];
+  }[]>(),
+  qas: jsonb("qas").notNull().$type<{
+    question: string;
+    answer: string;
+  }[]>(),
+  
+  // Full text for search
+  fullText: text("full_text"), // Original document text
+  
+  createdAt: timestamp("created_at").notNull().defaultNow(),
+  updatedAt: timestamp("updated_at").defaultNow(),
+}, (table) => [
+  index("core_documents_author_idx").on(table.author),
+  index("core_documents_title_idx").on(table.documentTitle),
+]);
+
+export const insertCoreDocumentSchema = createInsertSchema(coreDocuments).omit({
+  id: true,
+  createdAt: true,
+  updatedAt: true,
+});
+
+export type CoreDocument = typeof coreDocuments.$inferSelect;
+export type InsertCoreDocument = z.infer<typeof insertCoreDocumentSchema>;
+
+// ================================================================================
 // COHERENCE SERVICE TABLES - for PhilosopherCoherenceService
 // ================================================================================
 

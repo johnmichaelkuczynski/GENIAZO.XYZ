@@ -5367,56 +5367,56 @@ Continue the interview with NEW questions and responses:`;
           ? paperText.slice(0, maxDocLength) + "\n\n[Document truncated for processing - showing first " + Math.round(maxDocLength/1000) + "k characters]"
           : paperText;
         
-        debatePrompt = `You are orchestrating a philosophical debate between ${thinker1.name} and ${thinker2.name}.
+        const speaker1 = thinker1.name.split(' ').pop()?.toUpperCase() || thinker1.name.toUpperCase();
+        const speaker2 = thinker2.name.split(' ').pop()?.toUpperCase() || thinker2.name.toUpperCase();
+        
+        debatePrompt = `Generate a REAL PHILOSOPHICAL DEBATE - NOT an essay. This must be a back-and-forth dialogue.
 
-CRITICAL RULE: The thinkers must DIRECTLY ADDRESS EACH OTHER using "you" - NOT speak about each other in third person.
+MANDATORY FORMAT - FOLLOW THIS EXACTLY:
 
-WRONG: "Hume fails to understand that..."
-RIGHT: "You fail to understand, Hume, that..."
+${speaker1}: [Makes a claim or argument - 2-4 sentences]
 
-WRONG: "Kuczynski's position leads to..."  
-RIGHT: "Your position leads to catastrophe because..."
+${speaker2}: [Directly challenges what ${speaker1} just said - uses "you" and "your" - 2-4 sentences]
+
+${speaker1}: [Responds to the challenge, defends position, counterattacks - 2-4 sentences]
+
+${speaker2}: [Pushes back harder, finds weakness in the argument - 2-4 sentences]
+
+[...continue alternating...]
+
+CRITICAL RULES:
+1. NEVER write essays or paragraphs. Only write dialogue exchanges.
+2. ALWAYS use "you" and "your" - speakers address each other DIRECTLY
+3. Each turn is 2-5 sentences MAX. No long monologues.
+4. Real pushback - challenge claims, demand clarification, find contradictions
+5. NO HEADINGS. NO SECTIONS. Just ${speaker1}: and ${speaker2}: labels.
+
+WRONG (essay style):
+"In my view, the pleasure principle governs mental life. This can be understood through examining how excitation levels..."
+
+RIGHT (debate style):
+${speaker1}: I argue that the pleasure principle governs all mental life. When excitation rises, we feel unpleasure.
+
+${speaker2}: Not so fast. You claim to have discovered a mechanism, but where is this measurable "excitation"? What you actually observe are feelings and behavior.
+
+${speaker1}: The mechanism is inferred from clinical regularities. This economic viewpoint gives psychoanalysis its explanatory power.
+
+${speaker2}: Or it gives you vocabulary that sounds explanatory while remaining untestable.
 
 ${hasDocument ? `
 ===========================================
-MANDATORY: THE FOLLOWING DOCUMENT IS THE SOLE FOCUS OF THIS DEBATE
-===========================================
-
-THE UPLOADED DOCUMENT:
+DEBATE THIS DOCUMENT:
 """
 ${truncatedPaperText}
 """
-
+Both thinkers must engage with the specific claims in this document. Quote it. Critique it. Defend or attack its arguments.
 ===========================================
-CRITICAL INSTRUCTIONS:
-1. THIS DOCUMENT IS THE ENTIRE SUBJECT OF THE DEBATE
-2. Both thinkers MUST engage DIRECTLY with the specific claims, arguments, and ideas in this document
-3. Quote specific phrases from the document when responding
-4. DO NOT debate generic philosophical topics - debate THIS DOCUMENT specifically
-5. Every exchange must reference and analyze the document's content
-===========================================
+` : `Find where ${thinker1.name} and ${thinker2.name} most violently disagree and have them clash.`}
 
-OBJECTIVE: ${thinker1.name} and ${thinker2.name} must debate the claims and ideas in the uploaded document above. They should analyze it, critique it, defend or attack its arguments, and reference its specific content throughout.
-` : `
-OBJECTIVE: Identify where these two thinkers most violently disagree and create an intense back-and-forth debate.
-`}
+Generate ${exchangeRounds} rounds of exchange (${exchangeRounds * 2} total turns). Target: ${targetWordLength} words.
+Each speaker turn: roughly ${Math.ceil(wordsPerTurn / 2)} words.
 
-FORMAT:
-- Brief opening from each (1-2 paragraphs)
-- ${exchangeRounds} rounds of DIRECT exchange where they attack each other's positions face-to-face
-- Each turn: approximately ${wordsPerTurn} words. ${targetWordLength > 3000 ? 'Develop arguments fully with substance and examples.' : 'Keep it punchy and confrontational.'}
-
-FORMATTING:
-- Plain text only. No markdown.
-- Label speakers: ${thinker1.name.split(' ').pop()?.toUpperCase()}: and ${thinker2.name.split(' ').pop()?.toUpperCase()}:
-
-CONTENT:
-1. DIRECT ADDRESS - always use "you" when challenging the opponent
-2. ${targetWordLength > 3000 ? 'Develop arguments fully with philosophical depth and examples' : 'Short, sharp responses - no long monologues'}
-3. Total length: EXACTLY ${targetWordLength} words (THIS IS MANDATORY - COUNT YOUR WORDS)
-4. ${hasDocument ? 'MUST engage with the uploaded document - quote it, analyze it, critique it' : 'Ground positions in RAG context when provided'}
-
-Begin the debate. ${hasDocument ? 'Focus on the uploaded document.' : ''} Remember: ADDRESS EACH OTHER DIRECTLY. Target: ${targetWordLength} words total.`;
+BEGIN THE DEBATE NOW. Start with ${speaker1} making a claim:`;
       } else {
         // Custom mode: User-specified parameters
         if (!instructions || instructions.trim() === "") {
@@ -5431,41 +5431,54 @@ Begin the debate. ${hasDocument ? 'Focus on the uploaded document.' : ''} Rememb
           ? paperText.slice(0, maxDocLength) + "\n\n[Document truncated for processing - showing first " + Math.round(maxDocLength/1000) + "k characters]"
           : paperText;
         
-        debatePrompt = `You are orchestrating a philosophical debate between ${thinker1.name} and ${thinker2.name}.
+        const speaker1 = thinker1.name.split(' ').pop()?.toUpperCase() || thinker1.name.toUpperCase();
+        const speaker2 = thinker2.name.split(' ').pop()?.toUpperCase() || thinker2.name.toUpperCase();
+        
+        debatePrompt = `Generate a REAL PHILOSOPHICAL DEBATE - NOT an essay. This must be a back-and-forth dialogue.
 
-CRITICAL RULE: The thinkers must DIRECTLY ADDRESS EACH OTHER using "you" - NOT speak about each other in third person.
+TOPIC: ${instructions}
 
-WRONG: "Hume fails to understand..."
-RIGHT: "You fail to understand, Hume..."
+MANDATORY FORMAT - FOLLOW THIS EXACTLY:
 
-USER TOPIC/INSTRUCTIONS:
-${instructions}
+${speaker1}: [Makes a claim or argument - 2-4 sentences]
+
+${speaker2}: [Directly challenges what ${speaker1} just said - uses "you" and "your" - 2-4 sentences]
+
+${speaker1}: [Responds to the challenge, defends position, counterattacks - 2-4 sentences]
+
+${speaker2}: [Pushes back harder, finds weakness in the argument - 2-4 sentences]
+
+[...continue alternating...]
+
+CRITICAL RULES:
+1. NEVER write essays or paragraphs. Only write dialogue exchanges.
+2. ALWAYS use "you" and "your" - speakers address each other DIRECTLY
+3. Each turn is 2-5 sentences MAX. No long monologues.
+4. Real pushback - challenge claims, demand clarification, find contradictions
+5. NO HEADINGS. NO SECTIONS. Just ${speaker1}: and ${speaker2}: labels.
+
+WRONG (essay style):
+"In my view, the pleasure principle governs mental life. This can be understood through examining how excitation levels..."
+
+RIGHT (debate style):
+${speaker1}: I argue that the pleasure principle governs all mental life. When excitation rises, we feel unpleasure.
+
+${speaker2}: Not so fast. You claim to have discovered a mechanism, but where is this measurable "excitation"? What you actually observe are feelings and behavior.
 
 ${hasDocument ? `
 ===========================================
-MANDATORY: THE FOLLOWING DOCUMENT MUST BE THE FOCUS OF THIS DEBATE
-===========================================
-
-THE UPLOADED DOCUMENT:
+DEBATE THIS DOCUMENT:
 """
 ${truncatedPaperTextCustom}
 """
-
-===========================================
-CRITICAL: Both thinkers MUST engage DIRECTLY with this document's content.
-Quote specific phrases. Analyze specific arguments. DO NOT ignore this document.
+Both thinkers must engage with the specific claims in this document. Quote it. Critique it. Defend or attack its arguments.
 ===========================================
 ` : ''}
 
-FORMAT:
-- Brief opening from each (1-2 paragraphs)
-- ${exchangeRounds} rounds of direct exchange
-- Each turn: approximately ${wordsPerTurn} words. ${targetWordLength > 3000 ? 'Develop arguments fully with substance.' : 'Short, punchy, confrontational.'}
-- Label speakers: ${thinker1.name.split(' ').pop()?.toUpperCase()}: and ${thinker2.name.split(' ').pop()?.toUpperCase()}:
-- Plain text only. No markdown.
-- Total: EXACTLY ${targetWordLength} words (THIS IS MANDATORY - COUNT YOUR WORDS)
+Generate ${exchangeRounds} rounds of exchange (${exchangeRounds * 2} total turns). Target: ${targetWordLength} words.
+Each speaker turn: roughly ${Math.ceil(wordsPerTurn / 2)} words.
 
-Begin. DIRECTLY ADDRESS EACH OTHER. Target: ${targetWordLength} words total.`;
+BEGIN THE DEBATE NOW. Start with ${speaker1} making a claim:`;
       }
 
       // If enhanced mode, retrieve RAG context for both thinkers
@@ -5561,16 +5574,21 @@ Begin. DIRECTLY ADDRESS EACH OTHER. Target: ${targetWordLength} words total.`;
         const chunkMaxTokens = Math.ceil(chunkTarget * 1.5) + 500;
 
         let chunkPrompt = "";
+        const speaker1 = thinker1.name.split(' ').pop()?.toUpperCase() || thinker1.name.toUpperCase();
+        const speaker2 = thinker2.name.split(' ').pop()?.toUpperCase() || thinker2.name.toUpperCase();
+        
         if (chunkNumber === 1) {
           chunkPrompt = fullPrompt;
         } else {
-          chunkPrompt = `Continue the philosophical debate between ${thinker1.name} and ${thinker2.name}. 
-Write approximately ${chunkTarget} more words. Do NOT repeat what was already said.
-Continue naturally from where we left off:
+          chunkPrompt = `Continue the philosophical debate. Write ${chunkTarget} more words.
 
-${totalContent.slice(-2000)}
+CRITICAL: Maintain DIALOGUE FORMAT. Each turn is ${speaker1}: or ${speaker2}: followed by 2-4 sentences. 
+NO essays. NO paragraphs. Just back-and-forth dialogue with real pushback.
 
-Continue the debate with new arguments and responses:`;
+Here's where we left off:
+${totalContent.slice(-1500)}
+
+Continue the debate with NEW arguments. The next speaker should respond to what was just said:`;
         }
 
         const stream = await anthropic.messages.create({
