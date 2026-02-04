@@ -1380,7 +1380,8 @@ Now ATTACK this problem directly using your full philosophical firepower:
           auditEvent: { 
             type: "passage_found", 
             detail: pos.position.substring(0, 200),
-            data: { topic: pos.topic, source: "positions" }
+            data: { topic: pos.topic, source: "positions" },
+            timestamp: Date.now()
           }
         })}\n\n`);
       }

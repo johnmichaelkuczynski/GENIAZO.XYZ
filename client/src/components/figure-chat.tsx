@@ -231,12 +231,22 @@ export function FigureChat({ figure, open, onOpenChange, onTransferContent }: Fi
                     setStreamingMessage(accumulatedText);
                   }
                   if (parsed.status) {
-                    // Status update - add as audit step
-                    setStreamingAuditSteps(prev => [...prev, { type: 'status', detail: parsed.status, data: {} }]);
+                    // Status update - add as audit step with timestamp
+                    setStreamingAuditSteps(prev => [...prev, { 
+                      type: 'status', 
+                      detail: parsed.status, 
+                      data: {},
+                      timestamp: Date.now()
+                    }]);
                   }
                   if (parsed.auditStep || parsed.auditEvent) {
                     const event = parsed.auditStep || parsed.auditEvent;
-                    setStreamingAuditSteps(prev => [...prev, event]);
+                    // Ensure timestamp exists
+                    const eventWithTimestamp = {
+                      ...event,
+                      timestamp: event.timestamp || Date.now()
+                    };
+                    setStreamingAuditSteps(prev => [...prev, eventWithTimestamp]);
                   }
                   if (parsed.auditReport || parsed.auditSummary) {
                     const report = parsed.auditReport || parsed.auditSummary;
