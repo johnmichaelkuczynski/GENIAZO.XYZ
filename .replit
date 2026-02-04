@@ -1,0 +1,47 @@
+modules = ["nodejs-20", "python-3.12", "web", "postgresql-16"]
+
+[workflows]
+runButton = "Project"
+
+[[workflows.workflow]]
+name = "Project"
+mode = "parallel"
+author = "agent"
+
+[[workflows.workflow.tasks]]
+task = "workflow.run"
+args = "Start application"
+
+[[workflows.workflow]]
+name = "Start application"
+author = "agent"
+
+[workflows.workflow.metadata]
+outputType = "webview"
+
+[[workflows.workflow.tasks]]
+task = "shell.exec"
+args = "npm run dev"
+waitForPort = 5000
+
+[[ports]]
+localPort = 5000
+externalPort = 80
+
+[agent]
+expertMode = true
+integrations = ["javascript_database:1.0.0", "javascript_anthropic:1.0.0"]
+
+[nix]
+channel = "stable-25_05"
+packages = ["psmisc", "python312Packages.psycopg2", "lsof"]
+
+[userenv]
+
+[userenv.shared]
+NEON_DATABASE_URL = "postgresql://neondb_owner:npg_tC05ISWowAxf@ep-broad-unit-a41ddeqc-pooler.us-east-1.aws.neon.tech/neondb?sslmode=require&channel_binding=require"
+
+[deployment]
+deploymentTarget = "autoscale"
+build = ["npm", "run", "build"]
+run = ["node", "./dist/index.cjs"]
