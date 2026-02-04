@@ -639,17 +639,54 @@ export function FigureChat({ figure, open, onOpenChange, onTransferContent }: Fi
 
             {isStreaming && !streamingMessage && (
               <div className="flex justify-start">
-                <div className="max-w-[80%] rounded-lg px-4 py-3 bg-muted">
+                <div className="max-w-[90%] w-full rounded-lg px-4 py-3 bg-muted space-y-3">
                   <div className="flex items-center gap-2">
                     <div className="flex gap-1">
                       <span className="w-2 h-2 bg-primary rounded-full animate-bounce" style={{ animationDelay: '0ms' }} />
                       <span className="w-2 h-2 bg-primary rounded-full animate-bounce" style={{ animationDelay: '150ms' }} />
                       <span className="w-2 h-2 bg-primary rounded-full animate-bounce" style={{ animationDelay: '300ms' }} />
                     </div>
-                    <p className="text-sm text-muted-foreground">
+                    <p className="text-sm font-medium">
                       Searching {figure.name}'s writings...
                     </p>
                   </div>
+                  
+                  {streamingAuditSteps.length > 0 && (
+                    <div className="space-y-2 max-h-[300px] overflow-y-auto">
+                      {streamingAuditSteps.slice(-5).map((step, idx) => (
+                        <div 
+                          key={idx} 
+                          className={`text-xs p-2 rounded border-l-2 ${
+                            step.type === 'passage_accepted' 
+                              ? 'border-l-green-500 bg-green-50 dark:bg-green-950/30' 
+                              : step.type === 'passage_rejected'
+                              ? 'border-l-red-300 bg-red-50/50 dark:bg-red-950/20 opacity-60'
+                              : 'border-l-blue-500 bg-blue-50 dark:bg-blue-950/30'
+                          }`}
+                        >
+                          {step.type === 'passage_examined' && step.detail && (
+                            <p className="text-muted-foreground italic">
+                              "{step.detail.replace('Examining position: ', '').replace('Examining quote: ', '').slice(0, 150)}..."
+                            </p>
+                          )}
+                          {step.type === 'passage_accepted' && (
+                            <div>
+                              <span className="text-green-600 dark:text-green-400 font-medium">Found relevant passage</span>
+                              {(step.data as any)?.topic && <span className="ml-2 text-muted-foreground">from {(step.data as any).topic}</span>}
+                            </div>
+                          )}
+                          {step.type === 'passage_rejected' && (step.data as any)?.reason && (
+                            <p className="text-muted-foreground">
+                              Skipped: {String((step.data as any).reason).slice(0, 80)}...
+                            </p>
+                          )}
+                          {step.type === 'table_search' && (
+                            <p className="text-blue-600 dark:text-blue-400">{step.detail}</p>
+                          )}
+                        </div>
+                      ))}
+                    </div>
+                  )}
                 </div>
               </div>
             )}
