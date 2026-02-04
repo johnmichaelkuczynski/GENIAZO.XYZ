@@ -272,9 +272,11 @@ export async function registerRoutes(app: Express): Promise<Server> {
   // Serve attached_assets folder for avatar images
   app.use('/attached_assets', express.static(path.join(process.cwd(), 'attached_assets')));
 
+  // Trust proxy - REQUIRED for cookies to work behind Replit's proxy/iframe
+  app.set('trust proxy', 1);
+
   // Setup sessions (but not auth)
   const sessionTtl = 7 * 24 * 60 * 60 * 1000; // 1 week
-  const isProduction = process.env.NODE_ENV === 'production';
   
   app.use(session({
     secret: process.env.SESSION_SECRET,
@@ -282,9 +284,9 @@ export async function registerRoutes(app: Express): Promise<Server> {
     saveUninitialized: true,
     cookie: {
       httpOnly: true,
-      secure: isProduction, // Require HTTPS in production
+      secure: true, // Always secure for Replit (HTTPS)
       maxAge: sessionTtl,
-      sameSite: 'lax', // CSRF protection
+      sameSite: 'none', // Required for cross-origin iframe
     },
   }));
 
