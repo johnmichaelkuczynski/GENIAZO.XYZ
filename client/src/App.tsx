@@ -7,11 +7,13 @@ import { ThemeProvider } from "@/components/theme-provider";
 import { PopupManagerProvider } from "@/contexts/popup-manager-context";
 import { MultiPopupManager } from "@/components/ui/multi-popup-manager";
 import Chat from "@/pages/chat";
+import CoreProcessor from "@/pages/core-processor";
 
 function Router() {
   return (
     <Switch>
       <Route path="/" component={Chat} />
+      <Route path="/core-processor" component={CoreProcessor} />
       <Route path="/model-builder">
         <Redirect to="/" />
       </Route>

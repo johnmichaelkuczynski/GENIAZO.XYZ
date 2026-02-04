@@ -1,6 +1,6 @@
 import { db } from "./db";
-import { paperChunks, positions, textChunks, argumentStatements } from "@shared/schema";
-import { sql, ilike, or } from "drizzle-orm";
+import { paperChunks, positions, textChunks, argumentStatements, coreDocuments } from "@shared/schema";
+import { sql, ilike, or, eq } from "drizzle-orm";
 import OpenAI from "openai";
 
 // Structured position data from positions table
@@ -9,6 +9,92 @@ export interface StructuredPosition {
   topic: string;
   position: string;
   source: string | null;
+}
+
+// CORE document content interface
+export interface CoreContent {
+  positions: { position: string; importance: number; context: string }[];
+  arguments: { argumentType: string; premises: string[]; conclusion: string; importance: number }[];
+  trends: { trend: string; description: string; examples: string[] }[];
+  qas: { question: string; answer: string }[];
+}
+
+/**
+ * Search CORE documents FIRST for any author
+ * Returns structured content from CORE_AUTHOR_N documents
+ */
+export async function searchCoreDocuments(
+  author: string,
+  query?: string,
+  limit: number = 10
+): Promise<CoreContent> {
+  try {
+    const normalizedAuthor = author.toLowerCase().replace(/[^a-z0-9]/g, '_').replace(/_+/g, '_');
+    
+    // Get all CORE documents for this author
+    const docs = await db.select({
+      positions: coreDocuments.positions,
+      arguments: coreDocuments.arguments,
+      trends: coreDocuments.trends,
+      qas: coreDocuments.qas
+    })
+    .from(coreDocuments)
+    .where(sql`author ILIKE ${'%' + normalizedAuthor + '%'}`);
+    
+    if (docs.length === 0) {
+      console.log(`[CORE Search] No CORE documents for ${author}`);
+      return { positions: [], arguments: [], trends: [], qas: [] };
+    }
+    
+    console.log(`[CORE Search] Found ${docs.length} CORE documents for ${author}`);
+    
+    // Aggregate content from all CORE docs for this author
+    const allPositions: CoreContent['positions'] = [];
+    const allArguments: CoreContent['arguments'] = [];
+    const allTrends: CoreContent['trends'] = [];
+    const allQas: CoreContent['qas'] = [];
+    
+    for (const doc of docs) {
+      if (Array.isArray(doc.positions)) allPositions.push(...doc.positions as any[]);
+      if (Array.isArray(doc.arguments)) allArguments.push(...doc.arguments as any[]);
+      if (Array.isArray(doc.trends)) allTrends.push(...doc.trends as any[]);
+      if (Array.isArray(doc.qas)) allQas.push(...doc.qas as any[]);
+    }
+    
+    // Sort by importance and take top results
+    allPositions.sort((a, b) => (b.importance || 5) - (a.importance || 5));
+    allArguments.sort((a, b) => (b.importance || 5) - (a.importance || 5));
+    
+    // If query provided, prioritize matching content
+    if (query) {
+      const queryLower = query.toLowerCase();
+      
+      // Re-sort positions by relevance to query
+      allPositions.sort((a, b) => {
+        const aMatch = a.position.toLowerCase().includes(queryLower) ? 1 : 0;
+        const bMatch = b.position.toLowerCase().includes(queryLower) ? 1 : 0;
+        if (aMatch !== bMatch) return bMatch - aMatch;
+        return (b.importance || 5) - (a.importance || 5);
+      });
+      
+      // Re-sort Q&As by relevance to query
+      allQas.sort((a, b) => {
+        const aMatch = a.question.toLowerCase().includes(queryLower) || a.answer.toLowerCase().includes(queryLower) ? 1 : 0;
+        const bMatch = b.question.toLowerCase().includes(queryLower) || b.answer.toLowerCase().includes(queryLower) ? 1 : 0;
+        return bMatch - aMatch;
+      });
+    }
+    
+    return {
+      positions: allPositions.slice(0, limit),
+      arguments: allArguments.slice(0, limit),
+      trends: allTrends.slice(0, 5),
+      qas: allQas.slice(0, limit)
+    };
+  } catch (error) {
+    console.error("[CORE Search] Error:", error);
+    return { positions: [], arguments: [], trends: [], qas: [] };
+  }
 }
 
 /**

@@ -8,7 +8,7 @@ import Anthropic from "@anthropic-ai/sdk";
 import * as sdk from "microsoft-cognitiveservices-speech-sdk";
 import { buildSystemPrompt } from "./prompt-builder";
 import { findRelevantVerse } from "./bible-verses";
-import { findRelevantChunks, searchPhilosophicalChunks, searchTextChunks, searchPositions, normalizeAuthorName, type StructuredChunk, type StructuredPosition } from "./vector-search";
+import { findRelevantChunks, searchPhilosophicalChunks, searchTextChunks, searchPositions, normalizeAuthorName, searchCoreDocuments, type StructuredChunk, type StructuredPosition, type CoreContent } from "./vector-search";
 import {
   insertPersonaSettingsSchema,
   insertGoalSchema,
@@ -17,6 +17,8 @@ import {
   quotes,
   argumentStatements,
   insertArgumentStatementSchema,
+  coreDocuments,
+  figures,
 } from "@shared/schema";
 import { db } from "./db";
 import { eq, ilike, sql } from "drizzle-orm";
@@ -1370,9 +1372,42 @@ Now ATTACK this problem directly using your full philosophical firepower:
       const keywords = message.toLowerCase().split(/\s+/).filter(w => w.length > 3);
       
       // Stream immediate feedback
-      res.write(`data: ${JSON.stringify({ status: "Searching writings...", timestamp: Date.now() })}\n\n`);
+      res.write(`data: ${JSON.stringify({ status: "Searching CORE documents...", timestamp: Date.now() })}\n\n`);
       
-      // Search BOTH positions AND quotes for better coverage
+      // PRIORITY 1: Search CORE documents FIRST - these are the primary sources
+      const coreContent = await searchCoreDocuments(figure.name, message, 10);
+      
+      if (coreContent.positions.length > 0 || coreContent.qas.length > 0) {
+        console.log(`[SIMPLE CHAT] Found ${coreContent.positions.length} CORE positions, ${coreContent.qas.length} CORE Q&As`);
+        
+        // Stream CORE content first
+        for (const pos of coreContent.positions.slice(0, 3)) {
+          res.write(`data: ${JSON.stringify({ 
+            auditEvent: { 
+              type: "core_position_found", 
+              detail: pos.position.substring(0, 200),
+              data: { source: "CORE_DOCUMENT", importance: pos.importance },
+              timestamp: Date.now()
+            }
+          })}\n\n`);
+        }
+        
+        // Stream relevant Q&As
+        for (const qa of coreContent.qas.slice(0, 2)) {
+          res.write(`data: ${JSON.stringify({ 
+            auditEvent: { 
+              type: "core_qa_found", 
+              detail: qa.question.substring(0, 100),
+              data: { source: "CORE_DOCUMENT", type: "Q&A" },
+              timestamp: Date.now()
+            }
+          })}\n\n`);
+        }
+      }
+      
+      res.write(`data: ${JSON.stringify({ status: "Searching additional sources...", timestamp: Date.now() })}\n\n`);
+      
+      // PRIORITY 2: Search standard positions AND quotes for supplementary coverage
       const [foundPositions, foundQuotes] = await Promise.all([
         searchPositions(figure.name, keywords, 15, false),
         db.select().from(quotes)
@@ -1380,7 +1415,7 @@ Now ATTACK this problem directly using your full philosophical firepower:
           .limit(20)
       ]);
       
-      console.log(`[SIMPLE CHAT] Found ${foundPositions.length} positions, ${foundQuotes.length} quotes`);
+      console.log(`[SIMPLE CHAT] Found ${foundPositions.length} positions, ${foundQuotes.length} quotes (+ CORE: ${coreContent.positions.length} positions, ${coreContent.qas.length} Q&As)`);
       
       // Stream positions to user as they're found
       for (const pos of foundPositions.slice(0, 5)) {
@@ -1406,10 +1441,42 @@ Now ATTACK this problem directly using your full philosophical firepower:
         })}\n\n`);
       }
       
-      // Build context from BOTH positions and quotes
+      // Build context - CORE documents get HIGHEST priority
       let simpleContext = "";
+      
+      // CORE content goes FIRST - this is the most important source
+      if (coreContent.positions.length > 0 || coreContent.qas.length > 0) {
+        simpleContext = "=== PRIMARY SOURCES (CORE DOCUMENTS - USE THESE FIRST) ===\n\n";
+        
+        if (coreContent.positions.length > 0) {
+          simpleContext += "YOUR KEY POSITIONS:\n";
+          for (const pos of coreContent.positions) {
+            simpleContext += `• ${pos.position}\n`;
+          }
+          simpleContext += "\n";
+        }
+        
+        if (coreContent.qas.length > 0) {
+          simpleContext += "RELEVANT Q&As FROM YOUR WORKS:\n";
+          for (const qa of coreContent.qas.slice(0, 5)) {
+            simpleContext += `Q: ${qa.question}\nA: ${qa.answer}\n\n`;
+          }
+        }
+        
+        if (coreContent.arguments.length > 0) {
+          simpleContext += "YOUR KEY ARGUMENTS:\n";
+          for (const arg of coreContent.arguments.slice(0, 3)) {
+            simpleContext += `• ${arg.premises.join('; ')} → ${arg.conclusion}\n`;
+          }
+          simpleContext += "\n";
+        }
+        
+        simpleContext += "=== END PRIMARY SOURCES ===\n\n";
+      }
+      
+      // Then add regular positions
       if (foundPositions.length > 0) {
-        simpleContext = "RELEVANT POSITIONS FROM YOUR WRITINGS:\n\n";
+        simpleContext += "ADDITIONAL POSITIONS FROM YOUR WRITINGS:\n\n";
         for (const pos of foundPositions) {
           simpleContext += `[${pos.topic}]: "${pos.position}"\n\n`;
         }
@@ -1423,13 +1490,27 @@ Now ATTACK this problem directly using your full philosophical firepower:
         }
       }
       
-      // Create audit result with both positions and quotes
+      // Create audit result with CORE, positions, and quotes - CORE first for priority
       const allPassages = [
+        // CORE positions have HIGHEST priority
+        ...coreContent.positions.map((p, idx) => ({ 
+          passage: { id: `core-pos-${idx}`, text: p.position, source: 'CORE_DOCUMENT', topic: 'CORE', sourceFile: 'CORE_DOCUMENT' },
+          relevanceScore: 0.99,
+          reasoning: "CORE document position (primary source)"
+        })),
+        // CORE Q&As
+        ...coreContent.qas.slice(0, 5).map((qa, idx) => ({ 
+          passage: { id: `core-qa-${idx}`, text: `Q: ${qa.question} A: ${qa.answer}`, source: 'CORE_DOCUMENT', topic: 'CORE Q&A', sourceFile: 'CORE_DOCUMENT' },
+          relevanceScore: 0.98,
+          reasoning: "CORE document Q&A (primary source)"
+        })),
+        // Regular positions
         ...foundPositions.map((p, idx) => ({ 
           passage: { id: `pos-${idx}`, text: p.position, source: 'positions', topic: p.topic, sourceFile: p.topic },
           relevanceScore: 0.8,
           reasoning: "Position matched query"
         })),
+        // Quotes
         ...foundQuotes.map((q, idx) => ({
           passage: { id: `quote-${idx}`, text: q.quoteText, source: 'quotes', topic: q.topic || 'writings', sourceFile: q.topic || 'writings' },
           relevanceScore: 0.9,
@@ -1449,7 +1530,7 @@ Now ATTACK this problem directly using your full philosophical firepower:
         searchComplete: true
       };
       
-      console.log(`[SIMPLE CHAT] Built context with ${foundPositions.length} positions + ${foundQuotes.length} quotes`);
+      console.log(`[SIMPLE CHAT] Built context: CORE(${coreContent.positions.length} pos, ${coreContent.qas.length} qas) + ${foundPositions.length} positions + ${foundQuotes.length} quotes`);
       
       // Build context from audited search results
       const { systemPrompt: auditSystemPrompt, contextPrompt: auditContextPrompt } = buildPromptFromAuditResult(auditedResult);
@@ -6124,6 +6205,433 @@ ${totalContent.slice(-500)}`;
     } catch (error) {
       console.error('[Reconstruct] Status error:', error);
       res.status(500).json({ error: 'Failed to get status' });
+    }
+  });
+
+  // ================================================================================
+  // CORE DOCUMENT PROCESSING - Upload, analyze, and store CORE_AUTHOR_N documents
+  // ================================================================================
+  
+  app.post("/api/core-documents/process", upload.single('file'), async (req, res) => {
+    try {
+      const { authorName } = req.body;
+      const file = req.file;
+      
+      if (!file) {
+        return res.status(400).json({ error: "No file uploaded" });
+      }
+      
+      if (!authorName || authorName.trim().length < 2) {
+        return res.status(400).json({ error: "Author name is required" });
+      }
+      
+      // Parse file content
+      let documentText = "";
+      const fileName = file.originalname.toLowerCase();
+      
+      if (fileName.endsWith('.pdf')) {
+        const pdfData = await (pdfParse as any).default(file.buffer);
+        documentText = pdfData.text;
+      } else if (fileName.endsWith('.docx') || fileName.endsWith('.doc')) {
+        const result = await mammoth.extractRawText({ buffer: file.buffer });
+        documentText = result.value;
+      } else if (fileName.endsWith('.txt') || fileName.endsWith('.md')) {
+        documentText = file.buffer.toString('utf-8');
+      } else {
+        return res.status(400).json({ error: "Unsupported file format. Use PDF, DOCX, TXT, or MD." });
+      }
+      
+      const wordCount = documentText.split(/\s+/).filter(w => w.length > 0).length;
+      console.log(`[CORE] Processing document: ${file.originalname}, ${wordCount} words, author: ${authorName}`);
+      
+      if (wordCount < 100) {
+        return res.status(400).json({ error: "Document too short. Minimum 100 words." });
+      }
+      
+      if (wordCount > 100000) {
+        return res.status(400).json({ error: "Document too long. Maximum 100,000 words." });
+      }
+      
+      // Normalize author name for storage
+      const normalizedAuthor = authorName.trim().toLowerCase().replace(/[^a-z0-9]/g, '_').replace(/_+/g, '_');
+      const displayName = authorName.trim();
+      
+      // Setup SSE for streaming progress
+      res.setHeader("Content-Type", "text/event-stream");
+      res.setHeader("Cache-Control", "no-cache, no-transform");
+      res.setHeader("Connection", "keep-alive");
+      res.flushHeaders();
+      
+      const sendEvent = (data: any) => {
+        res.write(`data: ${JSON.stringify(data)}\n\n`);
+        if (typeof (res as any).flush === 'function') (res as any).flush();
+      };
+      
+      sendEvent({ status: "Analyzing document structure...", phase: "outline" });
+      
+      // Get existing CORE document count for this author to generate next number
+      const existingDocs = await db.select({ count: sql<number>`count(*)` })
+        .from(coreDocuments)
+        .where(eq(coreDocuments.author, normalizedAuthor));
+      const docNumber = Number(existingDocs[0]?.count || 0) + 1;
+      const documentTitle = `CORE_${normalizedAuthor.toUpperCase()}_${docNumber}`;
+      
+      // Truncate document for AI processing if very long
+      const maxChars = 80000;
+      const truncatedText = documentText.length > maxChars 
+        ? documentText.slice(0, maxChars) + "\n\n[Document truncated for processing]"
+        : documentText;
+      
+      // Use Anthropic to analyze the document in stages
+      if (!anthropic) {
+        sendEvent({ error: "AI API not configured" });
+        res.write("data: [DONE]\n\n");
+        res.end();
+        return;
+      }
+      
+      // Stage 1: Generate detailed outline
+      sendEvent({ status: "Generating detailed outline...", phase: "outline", progress: 10 });
+      
+      const outlineResponse = await anthropic.messages.create({
+        model: "claude-sonnet-4-20250514",
+        max_tokens: 4000,
+        messages: [{
+          role: "user",
+          content: `Analyze this philosophical/academic document and create a DETAILED OUTLINE.
+
+DOCUMENT:
+"""
+${truncatedText.slice(0, 40000)}
+"""
+
+Return a JSON object with this EXACT structure:
+{
+  "title": "The main title or subject of the work",
+  "sections": [
+    {
+      "heading": "Section heading or topic",
+      "summary": "2-3 sentence summary of this section",
+      "subsections": ["subsection 1", "subsection 2"]
+    }
+  ]
+}
+
+Create at least 5-10 sections that capture the document's structure and main points.
+Return ONLY valid JSON, no other text.`
+        }]
+      });
+      
+      let outline = { title: file.originalname, sections: [] as any[] };
+      try {
+        const outlineText = (outlineResponse.content[0] as any).text;
+        const jsonMatch = outlineText.match(/\{[\s\S]*\}/);
+        if (jsonMatch) {
+          outline = JSON.parse(jsonMatch[0]);
+        }
+      } catch (e) {
+        console.error("[CORE] Failed to parse outline:", e);
+      }
+      
+      sendEvent({ status: "Extracting key positions...", phase: "positions", progress: 25 });
+      
+      // Stage 2: Extract key positions
+      const positionsResponse = await anthropic.messages.create({
+        model: "claude-sonnet-4-20250514",
+        max_tokens: 6000,
+        messages: [{
+          role: "user",
+          content: `Extract the MOST IMPORTANT PHILOSOPHICAL POSITIONS from this document. These are claims, theses, or stances the author takes.
+
+DOCUMENT:
+"""
+${truncatedText.slice(0, 40000)}
+"""
+
+Return a JSON array with this EXACT structure:
+[
+  {
+    "position": "The exact position or claim (in the author's voice, using 'I' statements)",
+    "importance": 9,
+    "context": "Brief context about where/why this appears"
+  }
+]
+
+Extract 15-30 positions. Rate importance from 1-10 (10 being most central to the work).
+Return ONLY valid JSON array, no other text.`
+        }]
+      });
+      
+      let positions: any[] = [];
+      try {
+        const posText = (positionsResponse.content[0] as any).text;
+        const jsonMatch = posText.match(/\[[\s\S]*\]/);
+        if (jsonMatch) {
+          positions = JSON.parse(jsonMatch[0]);
+        }
+      } catch (e) {
+        console.error("[CORE] Failed to parse positions:", e);
+      }
+      
+      sendEvent({ status: "Identifying key arguments...", phase: "arguments", progress: 45 });
+      
+      // Stage 3: Extract arguments
+      const argumentsResponse = await anthropic.messages.create({
+        model: "claude-sonnet-4-20250514",
+        max_tokens: 6000,
+        messages: [{
+          role: "user",
+          content: `Extract the MOST IMPORTANT ARGUMENTS from this philosophical document. An argument has premises that lead to a conclusion.
+
+DOCUMENT:
+"""
+${truncatedText.slice(0, 40000)}
+"""
+
+Return a JSON array with this EXACT structure:
+[
+  {
+    "argumentType": "deductive|inductive|analogical|causal|reductio",
+    "premises": ["First premise", "Second premise"],
+    "conclusion": "The conclusion drawn",
+    "importance": 8
+  }
+]
+
+Extract 10-20 arguments. Rate importance from 1-10.
+Return ONLY valid JSON array, no other text.`
+        }]
+      });
+      
+      let arguments_: any[] = [];
+      try {
+        const argText = (argumentsResponse.content[0] as any).text;
+        const jsonMatch = argText.match(/\[[\s\S]*\]/);
+        if (jsonMatch) {
+          arguments_ = JSON.parse(jsonMatch[0]);
+        }
+      } catch (e) {
+        console.error("[CORE] Failed to parse arguments:", e);
+      }
+      
+      sendEvent({ status: "Analyzing intellectual trends...", phase: "trends", progress: 60 });
+      
+      // Stage 4: Identify trends
+      const trendsResponse = await anthropic.messages.create({
+        model: "claude-sonnet-4-20250514",
+        max_tokens: 3000,
+        messages: [{
+          role: "user",
+          content: `Identify the GENERAL TRENDS OF THOUGHT in this philosophical document. What patterns, themes, or intellectual tendencies characterize this work?
+
+DOCUMENT:
+"""
+${truncatedText.slice(0, 40000)}
+"""
+
+Return a JSON array with this EXACT structure:
+[
+  {
+    "trend": "Name of the intellectual trend or pattern",
+    "description": "2-3 sentence description of this trend",
+    "examples": ["Example 1 from text", "Example 2 from text"]
+  }
+]
+
+Identify 5-10 major trends.
+Return ONLY valid JSON array, no other text.`
+        }]
+      });
+      
+      let trends: any[] = [];
+      try {
+        const trendText = (trendsResponse.content[0] as any).text;
+        const jsonMatch = trendText.match(/\[[\s\S]*\]/);
+        if (jsonMatch) {
+          trends = JSON.parse(jsonMatch[0]);
+        }
+      } catch (e) {
+        console.error("[CORE] Failed to parse trends:", e);
+      }
+      
+      sendEvent({ status: "Generating 50 Q&As based on the text...", phase: "qas", progress: 75 });
+      
+      // Stage 5: Generate 50 Q&As (in two batches for reliability)
+      const qa1Response = await anthropic.messages.create({
+        model: "claude-sonnet-4-20250514",
+        max_tokens: 8000,
+        messages: [{
+          role: "user",
+          content: `Generate 25 QUESTIONS AND ANSWERS about this philosophical document. The questions should be things someone might ask the author, and answers should be based STRICTLY on what the document says.
+
+DOCUMENT:
+"""
+${truncatedText.slice(0, 40000)}
+"""
+
+Return a JSON array with this EXACT structure:
+[
+  {
+    "question": "A question about the document's content",
+    "answer": "An answer based on what the author says in the document (in first person, as the author would answer)"
+  }
+]
+
+Generate exactly 25 Q&As covering the document's main ideas.
+Return ONLY valid JSON array, no other text.`
+        }]
+      });
+      
+      let qas: any[] = [];
+      try {
+        const qa1Text = (qa1Response.content[0] as any).text;
+        const jsonMatch = qa1Text.match(/\[[\s\S]*\]/);
+        if (jsonMatch) {
+          qas = JSON.parse(jsonMatch[0]);
+        }
+      } catch (e) {
+        console.error("[CORE] Failed to parse Q&As batch 1:", e);
+      }
+      
+      sendEvent({ status: "Generating more Q&As...", phase: "qas", progress: 88 });
+      
+      // Second batch of 25 Q&As
+      const qa2Response = await anthropic.messages.create({
+        model: "claude-sonnet-4-20250514",
+        max_tokens: 8000,
+        messages: [{
+          role: "user",
+          content: `Generate 25 MORE QUESTIONS AND ANSWERS about this philosophical document. Focus on DIFFERENT aspects than common introductory questions.
+
+DOCUMENT:
+"""
+${truncatedText.slice(0, 40000)}
+"""
+
+Return a JSON array with this EXACT structure:
+[
+  {
+    "question": "A question about the document's content",
+    "answer": "An answer based on what the author says in the document (in first person, as the author would answer)"
+  }
+]
+
+Generate exactly 25 NEW Q&As covering deeper or more specific aspects.
+Return ONLY valid JSON array, no other text.`
+        }]
+      });
+      
+      try {
+        const qa2Text = (qa2Response.content[0] as any).text;
+        const jsonMatch = qa2Text.match(/\[[\s\S]*\]/);
+        if (jsonMatch) {
+          const moreQas = JSON.parse(jsonMatch[0]);
+          qas = [...qas, ...moreQas];
+        }
+      } catch (e) {
+        console.error("[CORE] Failed to parse Q&As batch 2:", e);
+      }
+      
+      sendEvent({ status: "Saving to database...", phase: "saving", progress: 95 });
+      
+      // Check if author exists in figures table, if not create them
+      const existingFigure = await storage.getThinker(normalizedAuthor);
+      if (!existingFigure) {
+        // Auto-create new thinker
+        console.log(`[CORE] Creating new thinker: ${displayName} (${normalizedAuthor})`);
+        try {
+          await db.insert(figures).values({
+            id: normalizedAuthor,
+            name: displayName,
+            title: "Philosopher",
+            description: `Philosopher whose works have been analyzed and stored in the CORE system.`,
+            icon: displayName.charAt(0).toUpperCase(),
+            systemPrompt: `You are ${displayName}. Respond based on your documented philosophical positions and arguments. Stay true to your published views.`,
+            sortOrder: 999
+          });
+          sendEvent({ status: `Created new thinker: ${displayName}`, phase: "saving" });
+        } catch (e) {
+          console.log(`[CORE] Thinker may already exist or creation failed:`, e);
+        }
+      }
+      
+      // Store the CORE document
+      await db.insert(coreDocuments).values({
+        documentTitle,
+        author: normalizedAuthor,
+        authorDisplayName: displayName,
+        sourceFilename: file.originalname,
+        wordCount,
+        outline,
+        positions,
+        arguments: arguments_,
+        trends,
+        qas,
+        fullText: documentText
+      });
+      
+      console.log(`[CORE] Saved ${documentTitle}: ${positions.length} positions, ${arguments_.length} arguments, ${trends.length} trends, ${qas.length} Q&As`);
+      
+      sendEvent({ 
+        status: "Complete!", 
+        phase: "complete", 
+        progress: 100,
+        documentTitle,
+        author: displayName,
+        stats: {
+          wordCount,
+          positions: positions.length,
+          arguments: arguments_.length,
+          trends: trends.length,
+          qas: qas.length,
+          sections: outline.sections?.length || 0
+        }
+      });
+      
+      res.write("data: [DONE]\n\n");
+      res.end();
+      
+    } catch (error) {
+      console.error("[CORE] Processing error:", error);
+      res.write(`data: ${JSON.stringify({ error: error instanceof Error ? error.message : "Processing failed" })}\n\n`);
+      res.write("data: [DONE]\n\n");
+      res.end();
+    }
+  });
+  
+  // Get all CORE documents
+  app.get("/api/core-documents", async (req, res) => {
+    try {
+      const docs = await db.select({
+        id: coreDocuments.id,
+        documentTitle: coreDocuments.documentTitle,
+        author: coreDocuments.author,
+        authorDisplayName: coreDocuments.authorDisplayName,
+        wordCount: coreDocuments.wordCount,
+        createdAt: coreDocuments.createdAt
+      }).from(coreDocuments).orderBy(coreDocuments.createdAt);
+      
+      res.json(docs);
+    } catch (error) {
+      console.error("[CORE] List error:", error);
+      res.status(500).json({ error: "Failed to list CORE documents" });
+    }
+  });
+  
+  // Get specific CORE document with full content
+  app.get("/api/core-documents/:id", async (req, res) => {
+    try {
+      const { id } = req.params;
+      const doc = await db.select().from(coreDocuments).where(eq(coreDocuments.id, id)).limit(1);
+      
+      if (doc.length === 0) {
+        return res.status(404).json({ error: "Document not found" });
+      }
+      
+      res.json(doc[0]);
+    } catch (error) {
+      console.error("[CORE] Get error:", error);
+      res.status(500).json({ error: "Failed to get CORE document" });
     }
   });
 
