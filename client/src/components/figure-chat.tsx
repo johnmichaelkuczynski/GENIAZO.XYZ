@@ -637,6 +637,23 @@ export function FigureChat({ figure, open, onOpenChange, onTransferContent }: Fi
               );
             })}
 
+            {isStreaming && !streamingMessage && (
+              <div className="flex justify-start">
+                <div className="max-w-[80%] rounded-lg px-4 py-3 bg-muted">
+                  <div className="flex items-center gap-2">
+                    <div className="flex gap-1">
+                      <span className="w-2 h-2 bg-primary rounded-full animate-bounce" style={{ animationDelay: '0ms' }} />
+                      <span className="w-2 h-2 bg-primary rounded-full animate-bounce" style={{ animationDelay: '150ms' }} />
+                      <span className="w-2 h-2 bg-primary rounded-full animate-bounce" style={{ animationDelay: '300ms' }} />
+                    </div>
+                    <p className="text-sm text-muted-foreground">
+                      Searching {figure.name}'s writings...
+                    </p>
+                  </div>
+                </div>
+              </div>
+            )}
+
             {streamingMessage && (
               <div className="flex justify-start">
                 <div className="max-w-[80%] rounded-lg px-4 py-3 bg-muted">
