@@ -45,7 +45,7 @@ export function FigureChat({ figure, open, onOpenChange, onTransferContent }: Fi
   const [auditPanelOpen, setAuditPanelOpen] = useState(false);
   const [auditData, setAuditData] = useState<AuditReport | null>(null);
   const [streamingAuditSteps, setStreamingAuditSteps] = useState<AuditStep[]>([]);
-  const [showSettings, setShowSettings] = useState(false);
+  const [showSettings, setShowSettings] = useState(true);
   
   // Window position and size state
   const [windowPos, setWindowPos] = useState({ x: 50, y: 50 }); // pixels from top-left
