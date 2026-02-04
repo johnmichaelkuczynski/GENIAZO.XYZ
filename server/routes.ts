@@ -1357,32 +1357,65 @@ Now ATTACK this problem directly using your full philosophical firepower:
       // Build base system prompt (persona settings already retrieved above)
       const baseSystemPrompt = buildSystemPrompt(personaSettings);
 
-      // Setup SSE EARLY so we can stream audit events
+      // Setup SSE 
       res.setHeader("Content-Type", "text/event-stream");
       res.setHeader("Cache-Control", "no-cache");
       res.setHeader("Connection", "keep-alive");
       res.flushHeaders();
 
-      // AUDITED CORPUS SEARCH: Search positions → quotes → chunks with live streaming
-      console.log(`[AUDITED SEARCH] Starting for ${figureId}: "${message.substring(0, 80)}..."`);
+      console.log(`[SIMPLE CHAT] Starting for ${figureId}: "${message.substring(0, 80)}..."`);
       
-      const auditedResult = await auditedCorpusSearch(
-        message,
-        figureId,
-        figure.name,
-        (event) => {
-          // Stream each audit event to client in real-time
-          res.write(`data: ${JSON.stringify({ auditEvent: event })}\n\n`);
+      // FAST PATH: Quickly fetch positions and stream them to user
+      const keywords = message.toLowerCase().split(/\s+/).filter(w => w.length > 3);
+      
+      // Stream immediate feedback
+      res.write(`data: ${JSON.stringify({ status: "Searching writings..." })}\n\n`);
+      
+      const foundPositions = await searchPositions(figure.name, keywords, 10, false);
+      console.log(`[SIMPLE CHAT] Found ${foundPositions.length} positions`);
+      
+      // Stream positions to user as they're found
+      for (const pos of foundPositions.slice(0, 5)) {
+        res.write(`data: ${JSON.stringify({ 
+          auditEvent: { 
+            type: "passage_found", 
+            detail: pos.position.substring(0, 200),
+            data: { topic: pos.topic, source: "positions" }
+          }
+        })}\n\n`);
+      }
+      
+      // Build simple context from positions
+      let simpleContext = "";
+      if (foundPositions.length > 0) {
+        simpleContext = "RELEVANT POSITIONS FROM YOUR WRITINGS:\n\n";
+        for (const pos of foundPositions) {
+          simpleContext += `[${pos.topic}]: "${pos.position}"\n\n`;
         }
-      );
+      }
       
-      console.log(`[AUDITED SEARCH] Complete: ${auditedResult.directAnswers.length} direct answers, type=${auditedResult.answerType}`);
+      // Create a minimal audit result for compatibility
+      const auditedResult: any = {
+        question: message,
+        authorId: figureId,
+        authorName: figure.name,
+        directAnswers: foundPositions.map((p, idx) => ({ 
+          passage: { id: `pos-${idx}`, text: p.position, source: 'positions', topic: p.topic, sourceFile: p.topic },
+          relevanceScore: 0.8,
+          reasoning: "Position matched query"
+        })),
+        adjacentMaterial: [],
+        answerType: foundPositions.length > 0 ? 'direct_aligned' : 'indirect',
+        events: [],
+        alignmentResult: { aligned: true, reasoning: "Positions found" },
+        searchComplete: true
+      };
+      
+      console.log(`[SIMPLE CHAT] Built context with ${foundPositions.length} positions`);
       
       // Build context from audited search results
       const { systemPrompt: auditSystemPrompt, contextPrompt: auditContextPrompt } = buildPromptFromAuditResult(auditedResult);
-      
-      // Also include adjacent material for additional context
-      let relevantPassages = auditContextPrompt;
+      let relevantPassages = simpleContext || auditContextPrompt;
       if (auditedResult.adjacentMaterial.length > 0) {
         relevantPassages += "\n\nADDITIONAL CONTEXT (not direct answers):\n";
         for (const adj of auditedResult.adjacentMaterial) {

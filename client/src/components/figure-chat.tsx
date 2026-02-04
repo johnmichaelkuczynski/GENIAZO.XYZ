@@ -230,6 +230,10 @@ export function FigureChat({ figure, open, onOpenChange, onTransferContent }: Fi
                     accumulatedText += parsed.content;
                     setStreamingMessage(accumulatedText);
                   }
+                  if (parsed.status) {
+                    // Status update - add as audit step
+                    setStreamingAuditSteps(prev => [...prev, { type: 'status', detail: parsed.status, data: {} }]);
+                  }
                   if (parsed.auditStep || parsed.auditEvent) {
                     const event = parsed.auditStep || parsed.auditEvent;
                     setStreamingAuditSteps(prev => [...prev, event]);
@@ -246,6 +250,7 @@ export function FigureChat({ figure, open, onOpenChange, onTransferContent }: Fi
                   }
                 } catch (err) {
                   // Ignore parsing errors for incomplete chunks
+                  console.log("Parse chunk:", data.substring(0, 50));
                 }
               }
             }
@@ -657,17 +662,19 @@ export function FigureChat({ figure, open, onOpenChange, onTransferContent }: Fi
                         <div 
                           key={idx} 
                           className={`text-xs p-2 rounded border-l-2 ${
-                            step.type === 'passage_accepted' 
+                            step.type === 'passage_found' || step.type === 'passage_accepted'
                               ? 'border-l-green-500 bg-green-50 dark:bg-green-950/30' 
-                              : step.type === 'passage_rejected'
-                              ? 'border-l-red-300 bg-red-50/50 dark:bg-red-950/20 opacity-60'
-                              : 'border-l-blue-500 bg-blue-50 dark:bg-blue-950/30'
+                              : step.type === 'status'
+                              ? 'border-l-blue-500 bg-blue-50 dark:bg-blue-950/30'
+                              : 'border-l-gray-300 bg-gray-50 dark:bg-gray-950/30'
                           }`}
                         >
-                          {step.type === 'passage_examined' && step.detail && (
-                            <p className="text-muted-foreground italic">
-                              "{step.detail.replace('Examining position: ', '').replace('Examining quote: ', '').slice(0, 150)}..."
-                            </p>
+                          {step.type === 'passage_found' && step.detail && (
+                            <div>
+                              <span className="text-green-600 dark:text-green-400 font-medium">Found: </span>
+                              <span className="italic">"{step.detail.slice(0, 150)}..."</span>
+                              {(step.data as any)?.topic && <span className="ml-2 text-muted-foreground text-xs">({(step.data as any).topic})</span>}
+                            </div>
                           )}
                           {step.type === 'passage_accepted' && (
                             <div>
@@ -675,10 +682,8 @@ export function FigureChat({ figure, open, onOpenChange, onTransferContent }: Fi
                               {(step.data as any)?.topic && <span className="ml-2 text-muted-foreground">from {(step.data as any).topic}</span>}
                             </div>
                           )}
-                          {step.type === 'passage_rejected' && (step.data as any)?.reason && (
-                            <p className="text-muted-foreground">
-                              Skipped: {String((step.data as any).reason).slice(0, 80)}...
-                            </p>
+                          {step.type === 'status' && (
+                            <p className="text-blue-600 dark:text-blue-400">{step.detail}</p>
                           )}
                           {step.type === 'table_search' && (
                             <p className="text-blue-600 dark:text-blue-400">{step.detail}</p>
