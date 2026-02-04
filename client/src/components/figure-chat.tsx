@@ -494,71 +494,63 @@ export function FigureChat({ figure, open, onOpenChange, onTransferContent }: Fi
         </div>
 
         {showSettings && personaSettings && (
-          <div className="px-4 py-3 border-b bg-muted/30 space-y-3">
-            <div className="flex flex-wrap items-center gap-4">
-              <div className="flex items-center gap-2">
-                <Label htmlFor="popup-response-length" className="text-xs font-medium whitespace-nowrap">
-                  Words:
-                </Label>
-                <Input
-                  id="popup-response-length"
-                  type="number"
-                  value={personaSettings.responseLength || 750}
-                  onChange={(e) => {
-                    const value = e.target.value === '' ? 750 : parseInt(e.target.value, 10);
-                    if (!isNaN(value) && value >= 0) {
-                      updatePersonaMutation.mutate({ responseLength: value });
-                    }
-                  }}
-                  min={0}
-                  className="w-20 h-7 text-xs"
-                  data-testid="input-popup-response-length"
-                />
+          <div className="px-4 py-3 border-b bg-muted/30 space-y-4">
+            <div className="space-y-3">
+              <div className="flex items-center justify-between">
+                <Label className="text-xs font-medium">Response Length</Label>
+                <span className="text-xs font-semibold text-primary" data-testid="text-popup-response-length">
+                  {personaSettings.responseLength || 750} words
+                </span>
               </div>
-
-              <div className="flex items-center gap-2">
-                <Label htmlFor="popup-quote-frequency" className="text-xs font-medium whitespace-nowrap">
-                  Quotes:
-                </Label>
-                <Input
-                  id="popup-quote-frequency"
-                  type="text"
-                  inputMode="numeric"
-                  value={personaSettings.quoteFrequency || 7}
-                  onChange={(e) => {
-                    const inputValue = e.target.value;
-                    if (inputValue === '') {
-                      updatePersonaMutation.mutate({ quoteFrequency: 7 });
-                      return;
-                    }
-                    if (!/^\d+$/.test(inputValue)) return;
-                    const value = parseInt(inputValue, 10);
-                    if (!isNaN(value) && value >= 0 && value <= 100) {
-                      updatePersonaMutation.mutate({ quoteFrequency: value });
-                    }
-                  }}
-                  className="w-16 h-7 text-xs"
-                  data-testid="input-popup-quote-frequency"
-                />
-              </div>
-
-              <div className="flex items-center gap-2">
-                <Label htmlFor="popup-enhanced-mode" className="text-xs font-medium whitespace-nowrap">
-                  Enhanced:
-                </Label>
-                <Switch
-                  id="popup-enhanced-mode"
-                  checked={personaSettings.enhancedMode || false}
-                  onCheckedChange={(checked) => {
-                    updatePersonaMutation.mutate({ enhancedMode: checked });
-                  }}
-                  data-testid="switch-popup-enhanced-mode"
-                />
-              </div>
+              <Slider
+                value={[personaSettings.responseLength || 750]}
+                onValueChange={(value) => {
+                  updatePersonaMutation.mutate({ responseLength: value[0] });
+                }}
+                min={100}
+                max={5000}
+                step={50}
+                data-testid="slider-popup-response-length"
+              />
             </div>
-            <p className="text-xs text-muted-foreground">
-              These settings apply to all conversations. Enhanced mode allows thinkers to apply their frameworks to modern topics.
-            </p>
+
+            <div className="space-y-3">
+              <div className="flex items-center justify-between">
+                <Label className="text-xs font-medium">Number of Quotes</Label>
+                <span className="text-xs font-semibold text-primary" data-testid="text-popup-quote-frequency">
+                  {personaSettings.quoteFrequency || 7} quotes
+                </span>
+              </div>
+              <Slider
+                value={[personaSettings.quoteFrequency || 7]}
+                onValueChange={(value) => {
+                  updatePersonaMutation.mutate({ quoteFrequency: value[0] });
+                }}
+                min={0}
+                max={20}
+                step={1}
+                data-testid="slider-popup-quote-frequency"
+              />
+            </div>
+
+            <div className="flex items-center justify-between pt-2 border-t">
+              <div className="space-y-0.5">
+                <Label htmlFor="popup-enhanced-mode" className="text-xs font-medium">
+                  Enhanced Mode
+                </Label>
+                <p className="text-xs text-muted-foreground">
+                  Apply frameworks to modern topics
+                </p>
+              </div>
+              <Switch
+                id="popup-enhanced-mode"
+                checked={personaSettings.enhancedMode || false}
+                onCheckedChange={(checked) => {
+                  updatePersonaMutation.mutate({ enhancedMode: checked });
+                }}
+                data-testid="switch-popup-enhanced-mode"
+              />
+            </div>
           </div>
         )}
 
