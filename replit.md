@@ -1,6 +1,18 @@
 # Ask A Philosopher - Philosophical Q&A Application
 
-### Recent Changes (January 11, 2026)
+### Recent Changes (February 4, 2026)
+- **CORE Document Processor**: Complete document ingestion pipeline accessible at `/core-processor`
+  - Upload PDF, DOCX, TXT, or MD files (up to 100,000 words)
+  - AI generates: outline, positions (with importance ratings), arguments (premises/conclusions), intellectual trends, and 50 Q&As
+  - Documents stored as CORE_AUTHOR_N format (e.g., CORE_FREUD_1) with JSONB structured data
+  - **Auto-Create Authors**: If document references unknown author, system automatically creates new thinker entry
+  - **Priority Search**: CORE documents are queried FIRST (0.99 relevance score) before positions/quotes tables
+  - SSE streaming with real-time phase progress updates
+- **Debate Creator Fixed**: Now produces real back-and-forth dialogue with pushback, not essay-style monologues
+  - Strict speaker alternation enforced
+  - Direct address and engagement with opponent's specific points required
+
+### Previous Changes (January 11, 2026)
 - **All Generators Support 50,000 Words**: Paper Writer, Dialogue Creator, Interview Creator, and Debate Creator now support manual word count input from 100 to 50,000 words
   - Manual numeric input replaces sliders/dropdowns - no presets, only user-specified word counts
   - Backend endpoints dynamically calculate token limits based on requested word length
