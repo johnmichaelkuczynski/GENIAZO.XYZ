@@ -45,8 +45,13 @@ function StepIcon({ type }: { type: string }) {
   }
 }
 
-function formatTimestamp(ts: number): string {
-  return new Date(ts).toISOString().split('T')[1].split('.')[0];
+function formatTimestamp(ts: number | undefined): string {
+  if (!ts || isNaN(ts)) return '--:--:--';
+  try {
+    return new Date(ts).toISOString().split('T')[1].split('.')[0];
+  } catch {
+    return '--:--:--';
+  }
 }
 
 function generateTextReport(data: AuditReport): string {

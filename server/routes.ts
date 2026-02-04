@@ -14,6 +14,7 @@ import {
   insertGoalSchema,
   thinkerQuotes,
   positions,
+  quotes,
   argumentStatements,
   insertArgumentStatementSchema,
 } from "@shared/schema";
@@ -1369,10 +1370,17 @@ Now ATTACK this problem directly using your full philosophical firepower:
       const keywords = message.toLowerCase().split(/\s+/).filter(w => w.length > 3);
       
       // Stream immediate feedback
-      res.write(`data: ${JSON.stringify({ status: "Searching writings..." })}\n\n`);
+      res.write(`data: ${JSON.stringify({ status: "Searching writings...", timestamp: Date.now() })}\n\n`);
       
-      const foundPositions = await searchPositions(figure.name, keywords, 10, false);
-      console.log(`[SIMPLE CHAT] Found ${foundPositions.length} positions`);
+      // Search BOTH positions AND quotes for better coverage
+      const [foundPositions, foundQuotes] = await Promise.all([
+        searchPositions(figure.name, keywords, 15, false),
+        db.select().from(quotes)
+          .where(ilike(quotes.thinker, `%${figure.name}%`))
+          .limit(20)
+      ]);
+      
+      console.log(`[SIMPLE CHAT] Found ${foundPositions.length} positions, ${foundQuotes.length} quotes`);
       
       // Stream positions to user as they're found
       for (const pos of foundPositions.slice(0, 5)) {
@@ -1386,7 +1394,19 @@ Now ATTACK this problem directly using your full philosophical firepower:
         })}\n\n`);
       }
       
-      // Build simple context from positions
+      // Stream some quotes too
+      for (const quote of foundQuotes.slice(0, 5)) {
+        res.write(`data: ${JSON.stringify({ 
+          auditEvent: { 
+            type: "quote_found", 
+            detail: quote.quoteText.substring(0, 200),
+            data: { source: quote.topic || "writings", source_type: "quote" },
+            timestamp: Date.now()
+          }
+        })}\n\n`);
+      }
+      
+      // Build context from BOTH positions and quotes
       let simpleContext = "";
       if (foundPositions.length > 0) {
         simpleContext = "RELEVANT POSITIONS FROM YOUR WRITINGS:\n\n";
@@ -1395,24 +1415,41 @@ Now ATTACK this problem directly using your full philosophical firepower:
         }
       }
       
-      // Create a minimal audit result for compatibility
-      const auditedResult: any = {
-        question: message,
-        authorId: figureId,
-        authorName: figure.name,
-        directAnswers: foundPositions.map((p, idx) => ({ 
+      // Add quotes to context
+      if (foundQuotes.length > 0) {
+        simpleContext += "\n\nDIRECT QUOTES FROM YOUR WRITINGS (you MUST use these verbatim):\n\n";
+        for (const quote of foundQuotes) {
+          simpleContext += `"${quote.quoteText}" — ${quote.topic || 'Your writings'}\n\n`;
+        }
+      }
+      
+      // Create audit result with both positions and quotes
+      const allPassages = [
+        ...foundPositions.map((p, idx) => ({ 
           passage: { id: `pos-${idx}`, text: p.position, source: 'positions', topic: p.topic, sourceFile: p.topic },
           relevanceScore: 0.8,
           reasoning: "Position matched query"
         })),
+        ...foundQuotes.map((q, idx) => ({
+          passage: { id: `quote-${idx}`, text: q.quoteText, source: 'quotes', topic: q.topic || 'writings', sourceFile: q.topic || 'writings' },
+          relevanceScore: 0.9,
+          reasoning: "Direct quote from works"
+        }))
+      ];
+      
+      const auditedResult: any = {
+        question: message,
+        authorId: figureId,
+        authorName: figure.name,
+        directAnswers: allPassages,
         adjacentMaterial: [],
-        answerType: foundPositions.length > 0 ? 'direct_aligned' : 'indirect',
+        answerType: allPassages.length > 0 ? 'direct_aligned' : 'indirect',
         events: [],
-        alignmentResult: { aligned: true, reasoning: "Positions found" },
+        alignmentResult: { aligned: true, reasoning: "Source material found" },
         searchComplete: true
       };
       
-      console.log(`[SIMPLE CHAT] Built context with ${foundPositions.length} positions`);
+      console.log(`[SIMPLE CHAT] Built context with ${foundPositions.length} positions + ${foundQuotes.length} quotes`);
       
       // Build context from audited search results
       const { systemPrompt: auditSystemPrompt, contextPrompt: auditContextPrompt } = buildPromptFromAuditResult(auditedResult);

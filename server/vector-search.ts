@@ -27,38 +27,71 @@ export async function searchPositions(
     const isAIQuery = queryText.includes('ai') || queryText.includes('artificial') || 
                       queryText.includes('machine learning') || queryText.includes('neural');
     
-    // positions table schema: id, thinker, position_text, topic, source_text_id, created_at
-    let query = sql`SELECT thinker, topic, position_text FROM positions WHERE 1=1`;
+    const allResults: StructuredPosition[] = [];
     
+    // STEP 1: ALWAYS get core positions for the thinker (their foundational views)
+    // This ensures we always have the thinker's actual philosophy, not just keyword matches
     if (thinker) {
-      query = sql`${query} AND thinker ILIKE ${'%' + thinker + '%'}`;
+      let coreQuery = sql`SELECT thinker, topic, position_text FROM positions WHERE thinker ILIKE ${'%' + thinker + '%'}`;
+      
+      if (excludeAI && !isAIQuery) {
+        coreQuery = sql`${coreQuery} AND topic NOT ILIKE '%AI%' AND topic NOT ILIKE '%artificial%' AND topic NOT ILIKE '%machine learning%'`;
+      }
+      
+      // Get a sample of positions from each topic to cover the thinker's full philosophy
+      coreQuery = sql`${coreQuery} ORDER BY RANDOM() LIMIT ${Math.floor(limit * 0.6)}`;
+      
+      const coreResults = await db.execute(coreQuery);
+      console.log(`[searchPositions] Core positions for ${thinker}: ${coreResults.rows?.length || 0}`);
+      
+      for (const row of (coreResults.rows || []) as any[]) {
+        allResults.push({
+          thinker: row.thinker,
+          topic: row.topic || 'general',
+          position: row.position_text,
+          source: 'works',
+        });
+      }
     }
     
-    // CRITICAL: Exclude AI-related topics unless the query is specifically about AI
-    // AI is less than 0.1% of Kuczynski's work but dominates the database
-    if (excludeAI && !isAIQuery) {
-      query = sql`${query} AND topic NOT ILIKE '%AI%' AND topic NOT ILIKE '%artificial%' AND topic NOT ILIKE '%machine learning%'`;
-    }
-    
+    // STEP 2: Also search by keywords if provided (for topic-specific matches)
     if (topicKeywords && topicKeywords.length > 0) {
+      let keywordQuery = sql`SELECT thinker, topic, position_text FROM positions WHERE 1=1`;
+      
+      if (thinker) {
+        keywordQuery = sql`${keywordQuery} AND thinker ILIKE ${'%' + thinker + '%'}`;
+      }
+      
+      if (excludeAI && !isAIQuery) {
+        keywordQuery = sql`${keywordQuery} AND topic NOT ILIKE '%AI%' AND topic NOT ILIKE '%artificial%' AND topic NOT ILIKE '%machine learning%'`;
+      }
+      
       const topicConditions = topicKeywords.map(kw => 
         sql`(topic ILIKE ${'%' + kw + '%'} OR position_text ILIKE ${'%' + kw + '%'})`
       );
-      query = sql`${query} AND (${sql.join(topicConditions, sql` OR `)})`;
+      keywordQuery = sql`${keywordQuery} AND (${sql.join(topicConditions, sql` OR `)})`;
+      keywordQuery = sql`${keywordQuery} ORDER BY RANDOM() LIMIT ${Math.floor(limit * 0.4)}`;
+      
+      const keywordResults = await db.execute(keywordQuery);
+      console.log(`[searchPositions] Keyword matches for "${topicKeywords.join(', ')}": ${keywordResults.rows?.length || 0}`);
+      
+      for (const row of (keywordResults.rows || []) as any[]) {
+        // Avoid duplicates
+        const exists = allResults.some(r => r.position === row.position_text);
+        if (!exists) {
+          allResults.push({
+            thinker: row.thinker,
+            topic: row.topic || 'general',
+            position: row.position_text,
+            source: 'works',
+          });
+        }
+      }
     }
     
-    query = sql`${query} ORDER BY RANDOM() LIMIT ${limit}`;
+    console.log(`[searchPositions] Total for ${thinker}: ${allResults.length} positions`);
     
-    const results = await db.execute(query);
-    
-    console.log(`[searchPositions] Query for ${thinker}, keywords: ${topicKeywords?.join(', ')}, excludeAI: ${excludeAI && !isAIQuery}, results: ${results.rows?.length || 0}`);
-    
-    return (results.rows || []).map((row: any) => ({
-      thinker: row.thinker,
-      topic: row.topic || 'general',
-      position: row.position_text,
-      source: 'works',
-    }));
+    return allResults.slice(0, limit);
   } catch (error) {
     console.error("Error searching positions:", error);
     return [];
