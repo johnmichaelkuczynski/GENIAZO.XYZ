@@ -1,6 +1,15 @@
 # Ask A Philosopher - Philosophical Q&A Application
 
-### Recent Changes (February 4, 2026)
+### Recent Changes (February 7, 2026)
+- **Debate Creator Upgraded to 2-4 Debaters**: Complete rewrite supporting multi-way debates
+  - Up to 4 debaters can participate (minimum 2, add/remove dynamically)
+  - **Per-Debater File Uploads**: Each debater has their own dedicated upload area (drag-drop + paste, up to 50,000 words each)
+  - **Shared Context Upload**: General file upload remains for material all debaters can access
+  - **Round-Robin Dialogue**: Multi-speaker prompts enforce strict rotation order (A→B→C→D→A...)
+  - **Per-Debater RAG**: Each debater gets independent database retrieval for their philosophical positions
+  - Backend accepts both old format (thinker1Id/thinker2Id) and new format (debaterIds array) for backward compatibility
+
+### Previous Changes (February 4, 2026)
 - **CORE Document Processor**: Complete document ingestion pipeline accessible at `/core-processor`
   - Upload PDF, DOCX, TXT, or MD files (up to 100,000 words)
   - AI generates: outline, positions (with importance ratings), arguments (premises/conclusions), intellectual trends, and 50 Q&As

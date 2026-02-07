@@ -8,21 +8,189 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Switch } from "@/components/ui/switch";
 import { ScrollArea } from "@/components/ui/scroll-area";
-import { Loader2, Users, Swords, Upload, Search, X, Download, Copy, Trash2, User } from "lucide-react";
+import { Loader2, Users, Swords, Upload, Search, X, Download, Copy, Trash2, User, Plus, FileText } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
 import type { Figure } from "@shared/schema";
 import { DragDropUpload } from "@/components/ui/drag-drop-upload";
 import { usePopupManager } from "@/contexts/popup-manager-context";
 
+interface DebaterSlot {
+  figure: Figure | null;
+  search: string;
+  uploadedFileName: string;
+  uploadedText: string;
+}
+
+function createEmptySlot(): DebaterSlot {
+  return { figure: null, search: "", uploadedFileName: "", uploadedText: "" };
+}
+
+function DebaterSelector({
+  slot,
+  slotIndex,
+  figures,
+  excludeIds,
+  onSelectFigure,
+  onClearFigure,
+  onSearchChange,
+  onFileAccepted,
+  onClearFile,
+  onTextChange,
+  onRemoveSlot,
+  isRemovable,
+}: {
+  slot: DebaterSlot;
+  slotIndex: number;
+  figures: Figure[];
+  excludeIds: string[];
+  onSelectFigure: (figure: Figure) => void;
+  onClearFigure: () => void;
+  onSearchChange: (val: string) => void;
+  onFileAccepted: (file: File) => void;
+  onClearFile: () => void;
+  onTextChange: (val: string) => void;
+  onRemoveSlot: () => void;
+  isRemovable: boolean;
+}) {
+  const filteredFigures = figures
+    .filter(f => !excludeIds.includes(f.id))
+    .filter(f =>
+      slot.search.trim() === "" ||
+      f.name.toLowerCase().includes(slot.search.toLowerCase()) ||
+      f.title.toLowerCase().includes(slot.search.toLowerCase())
+    );
+
+  const wordCount = slot.uploadedText.trim() ? slot.uploadedText.trim().split(/\s+/).length : 0;
+
+  return (
+    <Card>
+      <CardHeader className="pb-3">
+        <div className="flex items-center justify-between gap-2">
+          <CardTitle className="text-sm flex items-center gap-2">
+            <User className="w-4 h-4" />
+            Debater {slotIndex + 1}
+          </CardTitle>
+          {isRemovable && (
+            <Button
+              variant="ghost"
+              size="icon"
+              onClick={onRemoveSlot}
+              data-testid={`button-remove-debater-${slotIndex}`}
+            >
+              <X className="w-4 h-4" />
+            </Button>
+          )}
+        </div>
+      </CardHeader>
+      <CardContent className="space-y-3">
+        {slot.figure ? (
+          <div className="flex items-center justify-between p-2 border rounded-lg bg-muted">
+            <div className="flex items-center gap-2">
+              {slot.figure.icon && (slot.figure.icon.startsWith('/') || slot.figure.icon.startsWith('http')) ? (
+                <img src={slot.figure.icon} alt="" className="w-8 h-8 rounded-full object-cover" />
+              ) : (
+                <div className="w-8 h-8 rounded-full bg-primary/20 flex items-center justify-center flex-shrink-0">
+                  <User className="w-4 h-4 text-primary" />
+                </div>
+              )}
+              <div>
+                <p className="font-semibold text-sm">{slot.figure.name}</p>
+                <p className="text-xs text-muted-foreground">{slot.figure.title}</p>
+              </div>
+            </div>
+            <Button variant="ghost" size="icon" onClick={onClearFigure} data-testid={`button-clear-debater-${slotIndex}`}>
+              <X className="w-4 h-4" />
+            </Button>
+          </div>
+        ) : (
+          <div>
+            <div className="relative mb-2">
+              <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
+              <Input
+                placeholder="Search thinkers..."
+                value={slot.search}
+                onChange={(e) => onSearchChange(e.target.value)}
+                className="pl-9"
+                data-testid={`input-search-debater-${slotIndex}`}
+              />
+            </div>
+            <ScrollArea className="h-[150px] border rounded-lg">
+              <div className="p-2 space-y-1">
+                {filteredFigures.map((figure) => (
+                  <div
+                    key={figure.id}
+                    onClick={() => onSelectFigure(figure)}
+                    className="flex items-center gap-2 p-2 hover:bg-muted rounded cursor-pointer transition-colors"
+                    data-testid={`select-debater-${slotIndex}-${figure.id}`}
+                  >
+                    {figure.icon && (figure.icon.startsWith('/') || figure.icon.startsWith('http')) ? (
+                      <img src={figure.icon} alt="" className="w-7 h-7 rounded-full object-cover" />
+                    ) : (
+                      <div className="w-7 h-7 rounded-full bg-primary/20 flex items-center justify-center flex-shrink-0">
+                        <User className="w-3.5 h-3.5 text-primary" />
+                      </div>
+                    )}
+                    <div className="flex-1 min-w-0">
+                      <p className="font-medium text-sm truncate">{figure.name}</p>
+                      <p className="text-xs text-muted-foreground truncate">{figure.title}</p>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            </ScrollArea>
+          </div>
+        )}
+
+        {slot.figure && (
+          <div className="space-y-2 pt-2 border-t">
+            <Label className="text-xs font-medium flex items-center gap-1.5">
+              <FileText className="w-3.5 h-3.5" />
+              Material for {slot.figure.name} only (up to 50,000 words)
+            </Label>
+            <DragDropUpload
+              onFileAccepted={onFileAccepted}
+              onClear={onClearFile}
+              currentFileName={slot.uploadedFileName}
+              accept=".txt,.md,.doc,.docx,.pdf"
+              maxSizeBytes={10 * 1024 * 1024}
+              data-testid={`drag-drop-debater-${slotIndex}`}
+            />
+            <Textarea
+              placeholder={`Paste text that only ${slot.figure.name} will draw from...`}
+              value={slot.uploadedText}
+              onChange={(e) => {
+                const val = e.target.value;
+                const words = val.trim().split(/\s+/).length;
+                if (words > 50000) {
+                  const truncated = val.split(/\s+/).slice(0, 50000).join(' ');
+                  onTextChange(truncated);
+                } else {
+                  onTextChange(val);
+                }
+              }}
+              rows={2}
+              className="resize-none text-xs"
+              data-testid={`textarea-debater-material-${slotIndex}`}
+            />
+            {wordCount > 0 && (
+              <p className="text-xs text-muted-foreground">
+                {wordCount.toLocaleString()} words loaded
+                {wordCount > 50000 && <span className="text-destructive ml-1">(exceeds 50,000 limit)</span>}
+              </p>
+            )}
+          </div>
+        )}
+      </CardContent>
+    </Card>
+  );
+}
+
 export function DebateCreatorSection() {
   const [debateMode, setDebateMode] = useState<"auto" | "custom">("auto");
-  const [selectedThinker1, setSelectedThinker1] = useState<Figure | null>(null);
-  const [selectedThinker2, setSelectedThinker2] = useState<Figure | null>(null);
-  const [search1, setSearch1] = useState("");
-  const [search2, setSearch2] = useState("");
+  const [debaters, setDebaters] = useState<DebaterSlot[]>([createEmptySlot(), createEmptySlot()]);
   const [customInstructions, setCustomInstructions] = useState("");
-  const [paperText, setPaperText] = useState("");
-  const [uploadedFileName, setUploadedFileName] = useState("");
+  const [generalPaperText, setGeneralPaperText] = useState("");
+  const [generalUploadedFileName, setGeneralUploadedFileName] = useState("");
   const [enhanced, setEnhanced] = useState(true);
   const [debateResult, setDebateResult] = useState("");
   const [isStreaming, setIsStreaming] = useState(false);
@@ -33,163 +201,69 @@ export function DebateCreatorSection() {
 
   const handleCopy = () => {
     navigator.clipboard.writeText(debateResult);
-    toast({
-      title: "Copied to clipboard",
-      description: "Debate has been copied.",
-    });
+    toast({ title: "Copied to clipboard", description: "Debate has been copied." });
   };
 
   const handleClear = () => {
     setDebateResult("");
-    toast({
-      title: "Output cleared",
-      description: "The debate has been cleared.",
-    });
+    toast({ title: "Output cleared", description: "The debate has been cleared." });
   };
 
   const { data: figures = [] } = useQuery<Figure[]>({
     queryKey: ['/api/figures'],
   });
 
-  const generateDebateMutation = useMutation({
-    mutationFn: async (params: {
-      thinker1Id: string;
-      thinker2Id: string;
-      mode: "auto" | "custom";
-      instructions?: string;
-      paperText?: string;
-      enhanced: boolean;
-      wordLength?: number;
-    }) => {
-      setIsStreaming(true);
-      setDebateResult("");
-      
-      const thinker1 = figures.find(f => f.id === params.thinker1Id);
-      const thinker2 = figures.find(f => f.id === params.thinker2Id);
-      const debatePopupId = `debate-${Date.now()}`;
-      popupIdRef.current = debatePopupId;
-      registerPopup({
-        id: debatePopupId,
-        title: `Debate: ${thinker1?.name || "Philosopher 1"} vs ${thinker2?.name || "Philosopher 2"}`,
-        content: "",
-        isGenerating: true,
-        filename: `debate_${thinker1?.name.replace(/\s+/g, '_') || 'p1'}_vs_${thinker2?.name.replace(/\s+/g, '_') || 'p2'}.txt`,
-      });
+  const selectedIds = debaters.map(d => d.figure?.id).filter(Boolean) as string[];
+  const selectedFigures = debaters.filter(d => d.figure !== null);
 
-      const response = await fetch("/api/debate/generate", {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-        },
-        body: JSON.stringify(params),
-      });
+  const updateDebater = (index: number, updates: Partial<DebaterSlot>) => {
+    setDebaters(prev => prev.map((d, i) => i === index ? { ...d, ...updates } : d));
+  };
 
-      if (!response.ok) {
-        throw new Error("Failed to generate debate");
-      }
+  const addDebater = () => {
+    if (debaters.length < 4) {
+      setDebaters(prev => [...prev, createEmptySlot()]);
+    }
+  };
 
-      const reader = response.body?.getReader();
-      const decoder = new TextDecoder();
+  const removeDebater = (index: number) => {
+    if (debaters.length > 2) {
+      setDebaters(prev => prev.filter((_, i) => i !== index));
+    }
+  };
 
-      if (!reader) {
-        throw new Error("No response body");
-      }
-
-      return new Promise<void>(async (resolve, reject) => {
-        try {
-          let accumulatedText = "";
-          let buffer = ""; // Buffer for handling partial lines
-          
-          while (true) {
-            const { done, value } = await reader.read();
-            if (done) break;
-
-            // Use stream: true for proper multi-byte character handling
-            buffer += decoder.decode(value, { stream: true });
-            const lines = buffer.split("\n");
-            buffer = lines.pop() || ""; // Keep incomplete line in buffer
-
-            for (const line of lines) {
-              if (line.startsWith("data: ")) {
-                const data = line.slice(6);
-                if (data === "[DONE]") {
-                  setIsStreaming(false);
-                  updatePopup(debatePopupId, { isGenerating: false });
-                  resolve();
-                  return;
-                }
-
-                try {
-                  const parsed = JSON.parse(data);
-                  if (parsed.content) {
-                    accumulatedText += parsed.content;
-                    setDebateResult(accumulatedText);
-                    updatePopup(debatePopupId, { content: accumulatedText });
-                  }
-                  if (parsed.error) {
-                    console.error("Streaming error:", parsed.error);
-                    setIsStreaming(false);
-                    updatePopup(debatePopupId, { isGenerating: false });
-                    reject(new Error(parsed.error));
-                    return;
-                  }
-                } catch (err) {
-                  // Ignore parsing errors for incomplete chunks
-                }
-              }
-            }
-          }
-          
-          // Process any remaining buffer content
-          if (buffer.startsWith("data: ")) {
-            const data = buffer.slice(6);
-            if (data !== "[DONE]") {
-              try {
-                const parsed = JSON.parse(data);
-                if (parsed.content) {
-                  accumulatedText += parsed.content;
-                  setDebateResult(accumulatedText);
-                  updatePopup(debatePopupId, { content: accumulatedText });
-                }
-              } catch (err) {
-                // Ignore parsing errors
-              }
-            }
-          }
-          
-          setIsStreaming(false);
-          updatePopup(debatePopupId, { isGenerating: false });
-          resolve();
-        } catch (error) {
-          console.error("Stream reading error:", error);
-          setIsStreaming(false);
-          setDebateResult("");
-          updatePopup(debatePopupId, { isGenerating: false });
-          reject(error);
-        }
-      });
-    },
-  });
-
-  const handleFileAccepted = async (file: File) => {
-    setUploadedFileName(file.name);
-    
-    // Read file content as text
+  const handleDebaterFileAccepted = (index: number, file: File) => {
+    updateDebater(index, { uploadedFileName: file.name });
     const reader = new FileReader();
     reader.onload = (e) => {
       const content = e.target?.result as string;
-      setPaperText(content);
+      const words = content.trim().split(/\s+/).length;
+      if (words > 50000) {
+        toast({
+          title: "File too long",
+          description: `This file has ${words.toLocaleString()} words. Only the first 50,000 words will be used.`,
+          variant: "destructive",
+        });
+        const truncated = content.split(/\s+/).slice(0, 50000).join(' ');
+        updateDebater(index, { uploadedText: truncated });
+      } else {
+        updateDebater(index, { uploadedText: content });
+      }
     };
     reader.readAsText(file);
   };
-  
-  const handleClearFile = () => {
-    setPaperText("");
-    setUploadedFileName("");
+
+  const handleGeneralFileAccepted = (file: File) => {
+    setGeneralUploadedFileName(file.name);
+    const reader = new FileReader();
+    reader.onload = (e) => {
+      setGeneralPaperText(e.target?.result as string || "");
+    };
+    reader.readAsText(file);
   };
 
   const handleGenerate = () => {
-    if (!selectedThinker1 || !selectedThinker2 || isStreaming) return;
+    if (selectedFigures.length < 2 || isStreaming) return;
 
     const wordLength = parseInt(wordLengthInput) || 2500;
     if (wordLength < 100 || wordLength > 50000) {
@@ -201,36 +275,131 @@ export function DebateCreatorSection() {
       return;
     }
 
-    generateDebateMutation.mutate({
-      thinker1Id: selectedThinker1.id,
-      thinker2Id: selectedThinker2.id,
+    setIsStreaming(true);
+    setDebateResult("");
+
+    const debaterNames = selectedFigures.map(d => d.figure!.name);
+    const debatePopupId = `debate-${Date.now()}`;
+    popupIdRef.current = debatePopupId;
+    registerPopup({
+      id: debatePopupId,
+      title: `Debate: ${debaterNames.join(' vs ')}`,
+      content: "",
+      isGenerating: true,
+      filename: `debate_${debaterNames.map(n => n.replace(/\s+/g, '_')).join('_vs_')}.txt`,
+    });
+
+    const debaterUploads: Record<string, string> = {};
+    for (const d of debaters) {
+      if (d.figure && d.uploadedText.trim()) {
+        debaterUploads[d.figure.id] = d.uploadedText.trim();
+      }
+    }
+
+    const payload = {
+      debaterIds: selectedFigures.map(d => d.figure!.id),
       mode: debateMode,
       instructions: debateMode === "custom" ? customInstructions : undefined,
-      paperText: paperText || undefined,
+      paperText: generalPaperText || undefined,
+      debaterUploads,
       enhanced,
       wordLength,
+    };
+
+    fetch("/api/debate/generate", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(payload),
+    }).then(async (response) => {
+      if (!response.ok) {
+        setIsStreaming(false);
+        updatePopup(debatePopupId, { isGenerating: false });
+        toast({ title: "Error", description: "Failed to generate debate", variant: "destructive" });
+        return;
+      }
+
+      const reader = response.body?.getReader();
+      const decoder = new TextDecoder();
+      if (!reader) {
+        setIsStreaming(false);
+        return;
+      }
+
+      let accumulatedText = "";
+      let buffer = "";
+
+      while (true) {
+        const { done, value } = await reader.read();
+        if (done) break;
+
+        buffer += decoder.decode(value, { stream: true });
+        const lines = buffer.split("\n");
+        buffer = lines.pop() || "";
+
+        for (const line of lines) {
+          if (line.startsWith("data: ")) {
+            const data = line.slice(6);
+            if (data === "[DONE]") {
+              setIsStreaming(false);
+              updatePopup(debatePopupId, { isGenerating: false });
+              return;
+            }
+            try {
+              const parsed = JSON.parse(data);
+              if (parsed.content) {
+                accumulatedText += parsed.content;
+                setDebateResult(accumulatedText);
+                updatePopup(debatePopupId, { content: accumulatedText });
+              }
+              if (parsed.error) {
+                setIsStreaming(false);
+                updatePopup(debatePopupId, { isGenerating: false });
+                toast({ title: "Error", description: parsed.error, variant: "destructive" });
+                return;
+              }
+            } catch {
+            }
+          }
+        }
+      }
+
+      if (buffer.startsWith("data: ")) {
+        const data = buffer.slice(6);
+        if (data !== "[DONE]") {
+          try {
+            const parsed = JSON.parse(data);
+            if (parsed.content) {
+              accumulatedText += parsed.content;
+              setDebateResult(accumulatedText);
+              updatePopup(debatePopupId, { content: accumulatedText });
+            }
+          } catch {
+          }
+        }
+      }
+
+      setIsStreaming(false);
+      updatePopup(debatePopupId, { isGenerating: false });
+    }).catch((err) => {
+      setIsStreaming(false);
+      updatePopup(debatePopupId, { isGenerating: false });
+      toast({ title: "Error", description: "Failed to generate debate", variant: "destructive" });
     });
   };
 
   const handleReset = () => {
-    setSelectedThinker1(null);
-    setSelectedThinker2(null);
-    setSearch1("");
-    setSearch2("");
+    setDebaters([createEmptySlot(), createEmptySlot()]);
     setDebateMode("auto");
     setCustomInstructions("");
-    setPaperText("");
-    setUploadedFileName("");
+    setGeneralPaperText("");
+    setGeneralUploadedFileName("");
     setDebateResult("");
   };
 
   const handleDownload = () => {
     if (!debateResult) return;
-    
-    const thinker1Name = selectedThinker1?.name || "Thinker1";
-    const thinker2Name = selectedThinker2?.name || "Thinker2";
-    const filename = `debate-${thinker1Name}-vs-${thinker2Name}-${Date.now()}.txt`;
-    
+    const names = selectedFigures.map(d => d.figure!.name);
+    const filename = `debate-${names.join('-vs-')}-${Date.now()}.txt`;
     const blob = new Blob([debateResult], { type: "text/plain" });
     const url = URL.createObjectURL(blob);
     const a = document.createElement("a");
@@ -242,22 +411,6 @@ export function DebateCreatorSection() {
     URL.revokeObjectURL(url);
   };
 
-  const filteredFigures1 = figures
-    .filter(f => f.id !== selectedThinker2?.id)
-    .filter(f => 
-      search1.trim() === "" || 
-      f.name.toLowerCase().includes(search1.toLowerCase()) ||
-      f.title.toLowerCase().includes(search1.toLowerCase())
-    );
-
-  const filteredFigures2 = figures
-    .filter(f => f.id !== selectedThinker1?.id)
-    .filter(f => 
-      search2.trim() === "" || 
-      f.name.toLowerCase().includes(search2.toLowerCase()) ||
-      f.title.toLowerCase().includes(search2.toLowerCase())
-    );
-
   return (
     <div className="max-w-6xl mx-auto">
       <div className="mb-6">
@@ -266,171 +419,52 @@ export function DebateCreatorSection() {
           <h2 className="text-2xl font-semibold">Create a Debate</h2>
         </div>
         <p className="text-muted-foreground text-sm">
-          Select two thinkers to engage in philosophical combat. Choose auto mode for maximum disagreement or customize the debate parameters.
+          Select 2-4 thinkers to engage in philosophical combat. Each debater can have their own dedicated source material.
         </p>
       </div>
 
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-6 mb-6">
         {/* Left Panel - Configuration */}
-        <div className="space-y-6">
-          {/* Thinker Selection */}
+        <div className="space-y-4">
+          {/* Debater Selection */}
           <Card>
             <CardHeader>
-              <CardTitle className="flex items-center gap-2">
-                <Users className="w-5 h-5" />
-                Select Debaters
-              </CardTitle>
+              <div className="flex items-center justify-between gap-2">
+                <CardTitle className="flex items-center gap-2">
+                  <Users className="w-5 h-5" />
+                  Select Debaters ({selectedFigures.length}/{debaters.length})
+                </CardTitle>
+                {debaters.length < 4 && (
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    onClick={addDebater}
+                    data-testid="button-add-debater"
+                  >
+                    <Plus className="w-4 h-4 mr-1" />
+                    Add Debater
+                  </Button>
+                )}
+              </div>
             </CardHeader>
             <CardContent className="space-y-4">
-              {/* First Thinker */}
-              <div>
-                <Label className="text-sm font-semibold mb-2 block">First Thinker</Label>
-                {selectedThinker1 ? (
-                  <div className="flex items-center justify-between p-3 border rounded-lg bg-muted">
-                    <div className="flex items-center gap-3">
-                      {selectedThinker1.icon && (selectedThinker1.icon.startsWith('/') || selectedThinker1.icon.startsWith('http')) ? (
-                        <img 
-                          src={selectedThinker1.icon} 
-                          alt=""
-                          className="w-10 h-10 rounded-full object-cover"
-                        />
-                      ) : (
-                        <div className="w-10 h-10 rounded-full bg-primary/20 flex items-center justify-center flex-shrink-0">
-                          <User className="w-5 h-5 text-primary" />
-                        </div>
-                      )}
-                      <div>
-                        <p className="font-semibold">{selectedThinker1.name}</p>
-                        <p className="text-xs text-muted-foreground">{selectedThinker1.title}</p>
-                      </div>
-                    </div>
-                    <Button
-                      variant="ghost"
-                      size="sm"
-                      onClick={() => setSelectedThinker1(null)}
-                      data-testid="button-clear-thinker1"
-                    >
-                      <X className="w-4 h-4" />
-                    </Button>
-                  </div>
-                ) : (
-                  <div>
-                    <div className="relative mb-2">
-                      <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
-                      <Input
-                        placeholder="Search thinkers..."
-                        value={search1}
-                        onChange={(e) => setSearch1(e.target.value)}
-                        className="pl-9"
-                        data-testid="input-search-debate-thinker1"
-                      />
-                    </div>
-                    <ScrollArea className="h-[200px] border rounded-lg">
-                      <div className="p-2 space-y-1">
-                        {filteredFigures1.map((figure) => (
-                          <div
-                            key={figure.id}
-                            onClick={() => setSelectedThinker1(figure)}
-                            className="flex items-center gap-2 p-2 hover:bg-muted rounded cursor-pointer transition-colors"
-                            data-testid={`select-debate-thinker1-${figure.id}`}
-                          >
-                            {figure.icon && (figure.icon.startsWith('/') || figure.icon.startsWith('http')) ? (
-                              <img 
-                                src={figure.icon} 
-                                alt=""
-                                className="w-8 h-8 rounded-full object-cover"
-                              />
-                            ) : (
-                              <div className="w-8 h-8 rounded-full bg-primary/20 flex items-center justify-center flex-shrink-0">
-                                <User className="w-4 h-4 text-primary" />
-                              </div>
-                            )}
-                            <div className="flex-1 min-w-0">
-                              <p className="font-medium text-sm truncate">{figure.name}</p>
-                              <p className="text-xs text-muted-foreground truncate">{figure.title}</p>
-                            </div>
-                          </div>
-                        ))}
-                      </div>
-                    </ScrollArea>
-                  </div>
-                )}
-              </div>
-
-              {/* Second Thinker */}
-              <div>
-                <Label className="text-sm font-semibold mb-2 block">Second Thinker</Label>
-                {selectedThinker2 ? (
-                  <div className="flex items-center justify-between p-3 border rounded-lg bg-muted">
-                    <div className="flex items-center gap-3">
-                      {selectedThinker2.icon && (selectedThinker2.icon.startsWith('/') || selectedThinker2.icon.startsWith('http')) ? (
-                        <img 
-                          src={selectedThinker2.icon} 
-                          alt=""
-                          className="w-10 h-10 rounded-full object-cover"
-                        />
-                      ) : (
-                        <div className="w-10 h-10 rounded-full bg-primary/20 flex items-center justify-center flex-shrink-0">
-                          <User className="w-5 h-5 text-primary" />
-                        </div>
-                      )}
-                      <div>
-                        <p className="font-semibold">{selectedThinker2.name}</p>
-                        <p className="text-xs text-muted-foreground">{selectedThinker2.title}</p>
-                      </div>
-                    </div>
-                    <Button
-                      variant="ghost"
-                      size="sm"
-                      onClick={() => setSelectedThinker2(null)}
-                      data-testid="button-clear-thinker2"
-                    >
-                      <X className="w-4 h-4" />
-                    </Button>
-                  </div>
-                ) : (
-                  <div>
-                    <div className="relative mb-2">
-                      <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
-                      <Input
-                        placeholder="Search thinkers..."
-                        value={search2}
-                        onChange={(e) => setSearch2(e.target.value)}
-                        className="pl-9"
-                        data-testid="input-search-debate-thinker2"
-                      />
-                    </div>
-                    <ScrollArea className="h-[200px] border rounded-lg">
-                      <div className="p-2 space-y-1">
-                        {filteredFigures2.map((figure) => (
-                          <div
-                            key={figure.id}
-                            onClick={() => setSelectedThinker2(figure)}
-                            className="flex items-center gap-2 p-2 hover:bg-muted rounded cursor-pointer transition-colors"
-                            data-testid={`select-debate-thinker2-${figure.id}`}
-                          >
-                            {figure.icon && (figure.icon.startsWith('/') || figure.icon.startsWith('http')) ? (
-                              <img 
-                                src={figure.icon} 
-                                alt=""
-                                className="w-8 h-8 rounded-full object-cover"
-                              />
-                            ) : (
-                              <div className="w-8 h-8 rounded-full bg-primary/20 flex items-center justify-center flex-shrink-0">
-                                <User className="w-4 h-4 text-primary" />
-                              </div>
-                            )}
-                            <div className="flex-1 min-w-0">
-                              <p className="font-medium text-sm truncate">{figure.name}</p>
-                              <p className="text-xs text-muted-foreground truncate">{figure.title}</p>
-                            </div>
-                          </div>
-                        ))}
-                      </div>
-                    </ScrollArea>
-                  </div>
-                )}
-              </div>
+              {debaters.map((slot, index) => (
+                <DebaterSelector
+                  key={index}
+                  slot={slot}
+                  slotIndex={index}
+                  figures={figures}
+                  excludeIds={selectedIds.filter(id => id !== slot.figure?.id)}
+                  onSelectFigure={(figure) => updateDebater(index, { figure })}
+                  onClearFigure={() => updateDebater(index, { figure: null, uploadedFileName: "", uploadedText: "" })}
+                  onSearchChange={(val) => updateDebater(index, { search: val })}
+                  onFileAccepted={(file) => handleDebaterFileAccepted(index, file)}
+                  onClearFile={() => updateDebater(index, { uploadedFileName: "", uploadedText: "" })}
+                  onTextChange={(val) => updateDebater(index, { uploadedText: val })}
+                  onRemoveSlot={() => removeDebater(index)}
+                  isRemovable={debaters.length > 2}
+                />
+              ))}
             </CardContent>
           </Card>
 
@@ -456,16 +490,13 @@ export function DebateCreatorSection() {
                 <div>
                   <Label className="text-sm mb-2 block">Topic or Instructions</Label>
                   <Textarea
-                    placeholder="Enter a topic (e.g., 'free will', 'the nature of consciousness', 'whether empiricism is self-refuting') or specific instructions..."
+                    placeholder="Enter a topic (e.g., 'free will', 'the nature of consciousness') or specific instructions..."
                     value={customInstructions}
                     onChange={(e) => setCustomInstructions(e.target.value)}
                     rows={4}
                     className="resize-none"
                     data-testid="textarea-custom-instructions"
                   />
-                  <p className="text-xs text-muted-foreground mt-1">
-                    Just type a topic or question - no paper required
-                  </p>
                 </div>
               )}
             </CardContent>
@@ -513,7 +544,7 @@ export function DebateCreatorSection() {
                 data-testid="input-word-length"
               />
               <p className="text-xs text-muted-foreground mt-2">
-                {parseInt(wordLengthInput) > 3000 
+                {parseInt(wordLengthInput) > 3000
                   ? `Will be generated using coherence system for quality across ${Math.ceil(parseInt(wordLengthInput) / 2000)} rounds`
                   : "Standard single-generation debate"
                 }
@@ -521,32 +552,35 @@ export function DebateCreatorSection() {
             </CardContent>
           </Card>
 
-          {/* Paper Upload */}
+          {/* General Paper Upload */}
           <Card>
             <CardHeader>
               <CardTitle className="flex items-center gap-2 text-base">
                 <Upload className="w-4 h-4" />
-                Optional: Add Context
+                Shared Context (All Debaters)
               </CardTitle>
             </CardHeader>
             <CardContent className="space-y-3">
+              <p className="text-xs text-muted-foreground">
+                This material is shared with ALL debaters. For debater-specific material, use each debater's upload area above.
+              </p>
               <DragDropUpload
-                onFileAccepted={handleFileAccepted}
-                onClear={handleClearFile}
-                currentFileName={uploadedFileName}
+                onFileAccepted={handleGeneralFileAccepted}
+                onClear={() => { setGeneralPaperText(""); setGeneralUploadedFileName(""); }}
+                currentFileName={generalUploadedFileName}
                 accept=".txt,.md,.doc,.docx,.pdf"
                 maxSizeBytes={5 * 1024 * 1024}
-                data-testid="drag-drop-upload-debate"
+                data-testid="drag-drop-upload-debate-general"
               />
               <div>
-                <Label className="text-sm mb-2 block">Or paste additional context:</Label>
+                <Label className="text-sm mb-2 block">Or paste shared context:</Label>
                 <Textarea
-                  placeholder="Optional: paste a paper, argument, or additional context for the debate..."
-                  value={paperText}
-                  onChange={(e) => setPaperText(e.target.value)}
+                  placeholder="Optional: paste a paper, argument, or additional context for ALL debaters..."
+                  value={generalPaperText}
+                  onChange={(e) => setGeneralPaperText(e.target.value)}
                   rows={3}
                   className="resize-none"
-                  data-testid="textarea-paper-content"
+                  data-testid="textarea-general-paper-content"
                 />
               </div>
             </CardContent>
@@ -556,7 +590,7 @@ export function DebateCreatorSection() {
           <div className="flex gap-3">
             <Button
               onClick={handleGenerate}
-              disabled={!selectedThinker1 || !selectedThinker2 || isStreaming}
+              disabled={selectedFigures.length < 2 || isStreaming}
               className="flex-1"
               data-testid="button-generate-debate"
             >
@@ -568,7 +602,7 @@ export function DebateCreatorSection() {
               ) : (
                 <>
                   <Swords className="w-4 h-4 mr-2" />
-                  Generate Debate
+                  Generate Debate ({selectedFigures.length} debaters)
                 </>
               )}
             </Button>
@@ -587,7 +621,7 @@ export function DebateCreatorSection() {
         <div className="flex flex-col">
           <Card className="flex flex-col h-full min-h-[600px]">
             <CardHeader className="flex-shrink-0">
-              <div className="flex items-center justify-between">
+              <div className="flex items-center justify-between gap-2 flex-wrap">
                 <div>
                   <CardTitle>Debate Results</CardTitle>
                   {debateResult && !isStreaming && (
@@ -598,33 +632,15 @@ export function DebateCreatorSection() {
                 </div>
                 {(debateResult || isStreaming) && (
                   <div className="flex items-center gap-2">
-                    <Button
-                      onClick={handleCopy}
-                      variant="ghost"
-                      size="sm"
-                      className="h-7 px-2"
-                      data-testid="button-copy-debate"
-                    >
+                    <Button onClick={handleCopy} variant="ghost" size="sm" data-testid="button-copy-debate">
                       <Copy className="h-3 w-3 mr-1" />
                       Copy
                     </Button>
-                    <Button
-                      onClick={handleClear}
-                      variant="ghost"
-                      size="sm"
-                      className="h-7 px-2 text-destructive hover:text-destructive"
-                      data-testid="button-clear-debate"
-                    >
+                    <Button onClick={handleClear} variant="ghost" size="sm" className="text-destructive hover:text-destructive" data-testid="button-clear-debate">
                       <Trash2 className="h-3 w-3 mr-1" />
                       Clear
                     </Button>
-                    <Button
-                      onClick={handleDownload}
-                      variant="outline"
-                      size="sm"
-                      className="gap-2"
-                      data-testid="button-download-debate"
-                    >
+                    <Button onClick={handleDownload} variant="outline" size="sm" className="gap-2" data-testid="button-download-debate">
                       <Download className="w-4 h-4" />
                       Download
                     </Button>
@@ -643,7 +659,7 @@ export function DebateCreatorSection() {
                 <div className="flex items-center justify-center flex-1 text-center text-muted-foreground px-6 pb-6">
                   <div>
                     <Swords className="w-12 h-12 mx-auto mb-3 opacity-50" />
-                    <p>Select two thinkers and click "Generate Debate"</p>
+                    <p>Select at least two thinkers and click "Generate Debate"</p>
                     <p className="text-sm mt-1">The debate will appear here</p>
                   </div>
                 </div>

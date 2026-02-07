@@ -5414,200 +5414,191 @@ Continue the interview with NEW questions and responses:`;
   // Debate Creator endpoint
   app.post("/api/debate/generate", async (req, res) => {
     try {
-      const { thinker1Id, thinker2Id, mode, instructions, paperText, enhanced, wordLength } = req.body;
+      const { debaterIds, thinker1Id, thinker2Id, mode, instructions, paperText, debaterUploads, enhanced, wordLength } = req.body;
 
-      if (!thinker1Id || !thinker2Id) {
-        return res.status(400).json({ error: "Both thinkers must be selected" });
+      // Support both old (thinker1Id/thinker2Id) and new (debaterIds array) format
+      const resolvedDebaterIds: string[] = debaterIds || [thinker1Id, thinker2Id].filter(Boolean);
+
+      if (!resolvedDebaterIds || resolvedDebaterIds.length < 2) {
+        return res.status(400).json({ error: "At least 2 debaters must be selected" });
+      }
+      if (resolvedDebaterIds.length > 4) {
+        return res.status(400).json({ error: "Maximum 4 debaters allowed" });
       }
 
-      const thinker1 = await storage.getThinker(thinker1Id);
-      const thinker2 = await storage.getThinker(thinker2Id);
-
-      if (!thinker1 || !thinker2) {
-        return res.status(404).json({ error: "One or both thinkers not found" });
+      // Resolve all debater figures
+      const thinkers: any[] = [];
+      for (const id of resolvedDebaterIds) {
+        const thinker = await storage.getThinker(id);
+        if (!thinker) {
+          return res.status(404).json({ error: `Thinker "${id}" not found` });
+        }
+        thinkers.push(thinker);
       }
+
+      const numDebaters = thinkers.length;
+      const speakerLabels = thinkers.map(t => t.name.split(' ').pop()?.toUpperCase() || t.name.toUpperCase());
 
       // Parse target word length
       const targetWordLength = Math.min(Math.max(parseInt(wordLength) || 2500, 100), 50000);
-      console.log(`[Debate] Target word length: ${targetWordLength} words`);
+      console.log(`[Debate] ${numDebaters}-debater debate, target: ${targetWordLength} words`);
+      console.log(`[Debate] Debaters: ${thinkers.map(t => t.name).join(', ')}`);
+
+      // Calculate exchange parameters
+      const totalTurns = Math.max(numDebaters * 2, Math.min(60, Math.ceil(targetWordLength / 200)));
+      const wordsPerTurn = Math.ceil(targetWordLength / totalTurns);
+
+      // Build speaker rotation example
+      const rotationExample = speakerLabels.map((label, i) => {
+        const nextSpeaker = speakerLabels[(i + 1) % numDebaters];
+        return `${label}: [Makes a claim or challenges ${nextSpeaker}'s point - 2-4 sentences]`;
+      }).join('\n\n');
+
+      // Build per-debater uploaded material context
+      let debaterMaterialContext = "";
+      const uploads = debaterUploads || {};
+      for (const thinker of thinkers) {
+        const uploadedText = uploads[thinker.id];
+        if (uploadedText && uploadedText.trim().length > 50) {
+          const maxUploadLength = 25000;
+          const truncatedUpload = uploadedText.length > maxUploadLength
+            ? uploadedText.slice(0, maxUploadLength) + "\n\n[Material truncated for processing]"
+            : uploadedText;
+          debaterMaterialContext += `\n\n=== DEDICATED SOURCE MATERIAL FOR ${thinker.name.toUpperCase()} ===\n`;
+          debaterMaterialContext += `IMPORTANT: ONLY ${thinker.name.toUpperCase()} should draw from and reference this material. Other speakers must NOT use arguments or ideas from this section.\n`;
+          debaterMaterialContext += `"""${truncatedUpload}"""\n`;
+          debaterMaterialContext += `=== END ${thinker.name.toUpperCase()} MATERIAL ===\n`;
+        }
+      }
 
       // Build the debate prompt
       let debatePrompt = "";
 
-      // Calculate number of exchanges based on word length
-      const exchangeRounds = Math.max(3, Math.min(30, Math.ceil(targetWordLength / 400)));
-      const wordsPerTurn = Math.ceil(targetWordLength / (exchangeRounds * 2));
+      const hasDocument = paperText && paperText.trim().length > 50;
+      const maxDocLength = 15000;
+      const truncatedPaperText = hasDocument && paperText.length > maxDocLength
+        ? paperText.slice(0, maxDocLength) + "\n\n[Document truncated for processing]"
+        : paperText;
+
+      const speakerList = speakerLabels.join(', ');
+      const speakerLabelInstructions = speakerLabels.map(l => `${l}:`).join(' or ');
 
       if (mode === "auto") {
-        // Auto mode: Find their most violent disagreement OR debate provided document
-        const hasDocument = paperText && paperText.trim().length > 50;
-        
-        // Truncate very long documents to prevent token overflow (max ~15k chars = ~4k tokens)
-        const maxDocLength = 15000;
-        const truncatedPaperText = hasDocument && paperText.length > maxDocLength 
-          ? paperText.slice(0, maxDocLength) + "\n\n[Document truncated for processing - showing first " + Math.round(maxDocLength/1000) + "k characters]"
-          : paperText;
-        
-        const speaker1 = thinker1.name.split(' ').pop()?.toUpperCase() || thinker1.name.toUpperCase();
-        const speaker2 = thinker2.name.split(' ').pop()?.toUpperCase() || thinker2.name.toUpperCase();
-        
-        debatePrompt = `Generate a REAL PHILOSOPHICAL DEBATE - NOT an essay. This must be a back-and-forth dialogue.
+        debatePrompt = `Generate a REAL PHILOSOPHICAL DEBATE with ${numDebaters} SPEAKERS - NOT an essay. This must be a back-and-forth dialogue.
 
-MANDATORY FORMAT - FOLLOW THIS EXACTLY:
+SPEAKERS: ${thinkers.map(t => `${t.name} (labeled as ${t.name.split(' ').pop()?.toUpperCase()})`).join(', ')}
 
-${speaker1}: [Makes a claim or argument - 2-4 sentences]
+MANDATORY FORMAT - FOLLOW THIS EXACTLY (speakers rotate in order: ${speakerList}):
 
-${speaker2}: [Directly challenges what ${speaker1} just said - uses "you" and "your" - 2-4 sentences]
+${rotationExample}
 
-${speaker1}: [Responds to the challenge, defends position, counterattacks - 2-4 sentences]
-
-${speaker2}: [Pushes back harder, finds weakness in the argument - 2-4 sentences]
-
-[...continue alternating...]
+[...continue rotating through all ${numDebaters} speakers...]
 
 CRITICAL RULES:
 1. NEVER write essays or paragraphs. Only write dialogue exchanges.
 2. ALWAYS use "you" and "your" - speakers address each other DIRECTLY
 3. Each turn is 2-5 sentences MAX. No long monologues.
 4. Real pushback - challenge claims, demand clarification, find contradictions
-5. NO HEADINGS. NO SECTIONS. Just ${speaker1}: and ${speaker2}: labels.
-
-WRONG (essay style):
-"In my view, the pleasure principle governs mental life. This can be understood through examining how excitation levels..."
-
-RIGHT (debate style):
-${speaker1}: I argue that the pleasure principle governs all mental life. When excitation rises, we feel unpleasure.
-
-${speaker2}: Not so fast. You claim to have discovered a mechanism, but where is this measurable "excitation"? What you actually observe are feelings and behavior.
-
-${speaker1}: The mechanism is inferred from clinical regularities. This economic viewpoint gives psychoanalysis its explanatory power.
-
-${speaker2}: Or it gives you vocabulary that sounds explanatory while remaining untestable.
+5. NO HEADINGS. NO SECTIONS. Just ${speakerLabelInstructions} labels.
+6. Speakers MUST rotate in order: ${speakerList}, then repeat.
+7. Each speaker should have a DISTINCT voice and philosophical perspective.
+${numDebaters > 2 ? `8. With ${numDebaters} speakers, create alliances and rivalries. Speakers can agree with one to attack another.` : ''}
 
 ${hasDocument ? `
 ===========================================
-DEBATE THIS DOCUMENT:
+DEBATE THIS DOCUMENT (SHARED MATERIAL):
 """
 ${truncatedPaperText}
 """
-Both thinkers must engage with the specific claims in this document. Quote it. Critique it. Defend or attack its arguments.
+All debaters must engage with the specific claims in this document.
 ===========================================
-` : `Find where ${thinker1.name} and ${thinker2.name} most violently disagree and have them clash.`}
+` : `Find where ${thinkers.map(t => t.name).join(' and ')} most violently disagree and have them clash.`}
+${debaterMaterialContext}
+Generate ${totalTurns} total speaker turns. Target: ${targetWordLength} words.
+Each speaker turn: roughly ${wordsPerTurn} words.
 
-Generate ${exchangeRounds} rounds of exchange (${exchangeRounds * 2} total turns). Target: ${targetWordLength} words.
-Each speaker turn: roughly ${Math.ceil(wordsPerTurn / 2)} words.
-
-BEGIN THE DEBATE NOW. Start with ${speaker1} making a claim:`;
+BEGIN THE DEBATE NOW. Start with ${speakerLabels[0]} making a claim:`;
       } else {
-        // Custom mode: User-specified parameters
         if (!instructions || instructions.trim() === "") {
           return res.status(400).json({ error: "Custom mode requires instructions" });
         }
-        
-        const hasDocument = paperText && paperText.trim().length > 50;
-        
-        // Truncate very long documents to prevent token overflow
-        const maxDocLength = 15000;
-        const truncatedPaperTextCustom = hasDocument && paperText.length > maxDocLength 
-          ? paperText.slice(0, maxDocLength) + "\n\n[Document truncated for processing - showing first " + Math.round(maxDocLength/1000) + "k characters]"
-          : paperText;
-        
-        const speaker1 = thinker1.name.split(' ').pop()?.toUpperCase() || thinker1.name.toUpperCase();
-        const speaker2 = thinker2.name.split(' ').pop()?.toUpperCase() || thinker2.name.toUpperCase();
-        
-        debatePrompt = `Generate a REAL PHILOSOPHICAL DEBATE - NOT an essay. This must be a back-and-forth dialogue.
+
+        debatePrompt = `Generate a REAL PHILOSOPHICAL DEBATE with ${numDebaters} SPEAKERS - NOT an essay. This must be a back-and-forth dialogue.
 
 TOPIC: ${instructions}
 
-MANDATORY FORMAT - FOLLOW THIS EXACTLY:
+SPEAKERS: ${thinkers.map(t => `${t.name} (labeled as ${t.name.split(' ').pop()?.toUpperCase()})`).join(', ')}
 
-${speaker1}: [Makes a claim or argument - 2-4 sentences]
+MANDATORY FORMAT - FOLLOW THIS EXACTLY (speakers rotate in order: ${speakerList}):
 
-${speaker2}: [Directly challenges what ${speaker1} just said - uses "you" and "your" - 2-4 sentences]
+${rotationExample}
 
-${speaker1}: [Responds to the challenge, defends position, counterattacks - 2-4 sentences]
-
-${speaker2}: [Pushes back harder, finds weakness in the argument - 2-4 sentences]
-
-[...continue alternating...]
+[...continue rotating through all ${numDebaters} speakers...]
 
 CRITICAL RULES:
 1. NEVER write essays or paragraphs. Only write dialogue exchanges.
 2. ALWAYS use "you" and "your" - speakers address each other DIRECTLY
 3. Each turn is 2-5 sentences MAX. No long monologues.
 4. Real pushback - challenge claims, demand clarification, find contradictions
-5. NO HEADINGS. NO SECTIONS. Just ${speaker1}: and ${speaker2}: labels.
-
-WRONG (essay style):
-"In my view, the pleasure principle governs mental life. This can be understood through examining how excitation levels..."
-
-RIGHT (debate style):
-${speaker1}: I argue that the pleasure principle governs all mental life. When excitation rises, we feel unpleasure.
-
-${speaker2}: Not so fast. You claim to have discovered a mechanism, but where is this measurable "excitation"? What you actually observe are feelings and behavior.
+5. NO HEADINGS. NO SECTIONS. Just ${speakerLabelInstructions} labels.
+6. Speakers MUST rotate in order: ${speakerList}, then repeat.
+7. Each speaker should have a DISTINCT voice and philosophical perspective.
+${numDebaters > 2 ? `8. With ${numDebaters} speakers, create alliances and rivalries. Speakers can agree with one to attack another.` : ''}
 
 ${hasDocument ? `
 ===========================================
-DEBATE THIS DOCUMENT:
+DEBATE THIS DOCUMENT (SHARED MATERIAL):
 """
-${truncatedPaperTextCustom}
+${truncatedPaperText}
 """
-Both thinkers must engage with the specific claims in this document. Quote it. Critique it. Defend or attack its arguments.
+All debaters must engage with the specific claims in this document.
 ===========================================
 ` : ''}
+${debaterMaterialContext}
+Generate ${totalTurns} total speaker turns. Target: ${targetWordLength} words.
+Each speaker turn: roughly ${wordsPerTurn} words.
 
-Generate ${exchangeRounds} rounds of exchange (${exchangeRounds * 2} total turns). Target: ${targetWordLength} words.
-Each speaker turn: roughly ${Math.ceil(wordsPerTurn / 2)} words.
-
-BEGIN THE DEBATE NOW. Start with ${speaker1} making a claim:`;
+BEGIN THE DEBATE NOW. Start with ${speakerLabels[0]} making a claim:`;
       }
 
-      // If enhanced mode, retrieve RAG context for both thinkers
+      // If enhanced mode, retrieve RAG context for all debaters
       let ragContext = "";
       if (enhanced) {
         try {
-          // Use paper content for RAG query if provided, otherwise use instructions or generic
           let query: string;
           if (paperText && paperText.trim().length > 50) {
-            // Extract key terms from paper for more relevant RAG retrieval
-            query = paperText.slice(0, 500); // First 500 chars for query
+            query = paperText.slice(0, 500);
           } else if (mode === "custom" && instructions) {
             query = instructions;
           } else {
-            query = `core philosophical positions ${thinker1.name} ${thinker2.name}`;
+            query = `core philosophical positions ${thinkers.map(t => t.name).join(' ')}`;
           }
-          
-          // CORRECT PARAMETER ORDER: searchPhilosophicalChunks(query, topK, figureId, authorFilter)
-          const chunks1 = await searchPhilosophicalChunks(query, 6, "common", normalizeAuthorName(thinker1.name));
-          const chunks2 = await searchPhilosophicalChunks(query, 6, "common", normalizeAuthorName(thinker2.name));
 
-          if (chunks1.length > 0 || chunks2.length > 0) {
-            ragContext = "\n\n=== DOCUMENTED PHILOSOPHICAL POSITIONS (Use these to ground the debate) ===\n\n";
-            
-            if (chunks1.length > 0) {
-              ragContext += `${thinker1.name}'s documented positions:\n`;
-              chunks1.forEach((chunk, i) => {
+          let anyChunksFound = false;
+          ragContext = "\n\n=== DOCUMENTED PHILOSOPHICAL POSITIONS (Use these to ground the debate) ===\n\n";
+
+          for (const thinker of thinkers) {
+            const chunks = await searchPhilosophicalChunks(query, 6, "common", normalizeAuthorName(thinker.name));
+            if (chunks.length > 0) {
+              anyChunksFound = true;
+              ragContext += `${thinker.name}'s documented positions:\n`;
+              chunks.forEach((chunk, i) => {
                 ragContext += `[${i + 1}] ${chunk.content}\n`;
                 if (chunk.citation) ragContext += `    Source: ${chunk.citation}\n`;
               });
               ragContext += "\n";
             }
-            
-            if (chunks2.length > 0) {
-              ragContext += `${thinker2.name}'s documented positions:\n`;
-              chunks2.forEach((chunk, i) => {
-                ragContext += `[${i + 1}] ${chunk.content}\n`;
-                if (chunk.citation) ragContext += `    Source: ${chunk.citation}\n`;
-              });
-            }
-            
-            ragContext += "\n=== END DOCUMENTED POSITIONS ===\n";
-          } else if (enhanced) {
-            // Warn if RAG failed but enhanced was requested
-            console.warn(`[Debate] Enhanced mode enabled but no RAG chunks found for ${thinker1.name} or ${thinker2.name}`);
+          }
+
+          if (anyChunksFound) {
+            ragContext += "=== END DOCUMENTED POSITIONS ===\n";
+          } else {
+            ragContext = "";
+            console.warn(`[Debate] Enhanced mode enabled but no RAG chunks found for any debater`);
           }
         } catch (error) {
           console.error("RAG retrieval error:", error);
+          ragContext = "";
         }
       }
 
@@ -5617,21 +5608,18 @@ BEGIN THE DEBATE NOW. Start with ${speaker1} making a claim:`;
       res.setHeader("Content-Type", "text/event-stream");
       res.setHeader("Cache-Control", "no-cache, no-transform");
       res.setHeader("Connection", "keep-alive");
-      res.setHeader("X-Accel-Buffering", "no"); // Disable nginx buffering
-      
-      // Disable socket timeout and flush headers immediately
+      res.setHeader("X-Accel-Buffering", "no");
+
       if (res.socket) {
         res.socket.setTimeout(0);
       }
       res.flushHeaders();
-      
-      // Send initial ping immediately to force proxy to start streaming
+
       res.write(`data: ${JSON.stringify({ status: "Starting debate generation..." })}\n\n`);
       if (typeof (res as any).flush === 'function') {
         (res as any).flush();
       }
 
-      // Call Anthropic to generate the debate with streaming
       if (!anthropic) {
         res.write(`data: ${JSON.stringify({ error: "Anthropic API not configured" })}\n\n`);
         res.write("data: [DONE]\n\n");
@@ -5639,8 +5627,8 @@ BEGIN THE DEBATE NOW. Start with ${speaker1} making a claim:`;
         return;
       }
 
-      console.log(`[Debate] Starting debate generation between ${thinker1.name} and ${thinker2.name}, target: ${targetWordLength} words`);
-      
+      console.log(`[Debate] Starting ${numDebaters}-way debate: ${thinkers.map(t => t.name).join(' vs ')}, target: ${targetWordLength} words`);
+
       // Chunked generation to reach target word count
       let totalContent = "";
       let totalWords = 0;
@@ -5655,15 +5643,14 @@ BEGIN THE DEBATE NOW. Start with ${speaker1} making a claim:`;
         const chunkMaxTokens = Math.ceil(chunkTarget * 1.5) + 500;
 
         let chunkPrompt = "";
-        const speaker1 = thinker1.name.split(' ').pop()?.toUpperCase() || thinker1.name.toUpperCase();
-        const speaker2 = thinker2.name.split(' ').pop()?.toUpperCase() || thinker2.name.toUpperCase();
-        
+
         if (chunkNumber === 1) {
           chunkPrompt = fullPrompt;
         } else {
           chunkPrompt = `Continue the philosophical debate. Write ${chunkTarget} more words.
 
-CRITICAL: Maintain DIALOGUE FORMAT. Each turn is ${speaker1}: or ${speaker2}: followed by 2-4 sentences. 
+CRITICAL: Maintain DIALOGUE FORMAT. Each turn is ${speakerLabelInstructions} followed by 2-4 sentences.
+Speaker rotation order: ${speakerList}. 
 NO essays. NO paragraphs. Just back-and-forth dialogue with real pushback.
 
 Here's where we left off:
@@ -5686,21 +5673,18 @@ Continue the debate with NEW arguments. The next speaker should respond to what 
             totalContent += event.delta.text;
             res.write(`data: ${JSON.stringify({ content: event.delta.text })}\n\n`);
             tokenCount++;
-            // Flush periodically to prevent buffering issues in Replit environment
             if (tokenCount % 10 === 0 && typeof (res as any).flush === 'function') {
               (res as any).flush();
             }
           }
         }
-        // Flush at end of each chunk
         if (typeof (res as any).flush === 'function') {
           (res as any).flush();
         }
 
         totalWords = totalContent.split(/\s+/).filter((w: string) => w.length > 0).length;
         console.log(`[Debate] Chunk ${chunkNumber}: ${totalWords} words total`);
-        
-        // Send keep-alive ping between chunks
+
         if (totalWords < targetWordLength) {
           res.write(`data: ${JSON.stringify({ status: "continuing..." })}\n\n`);
           if (typeof (res as any).flush === 'function') {
@@ -5713,10 +5697,10 @@ Continue the debate with NEW arguments. The next speaker should respond to what 
       const trimmedContent = totalContent.trim();
       const lastChar = trimmedContent.slice(-1);
       const endsWithPunctuation = ['.', '!', '?', '"', "'", ')'].includes(lastChar);
-      
+
       if (!endsWithPunctuation && chunkNumber < MAX_CHUNKS) {
         console.log(`[Debate] Content ends mid-sentence, generating completion...`);
-        
+
         const completionPrompt = `Complete this sentence and thought, then end with a proper concluding statement. Write NO MORE than 100 words:
 
 ${totalContent.slice(-500)}`;
@@ -5738,7 +5722,7 @@ ${totalContent.slice(-500)}`;
         if (typeof (res as any).flush === 'function') {
           (res as any).flush();
         }
-        
+
         totalWords = totalContent.split(/\s+/).filter((w: string) => w.length > 0).length;
         console.log(`[Debate] After completion: ${totalWords} words`);
       }
@@ -5752,9 +5736,13 @@ ${totalContent.slice(-500)}`;
 
     } catch (error) {
       console.error("Debate generation error:", error);
-      res.write(`data: ${JSON.stringify({ error: "Failed to generate debate" })}\n\n`);
-      res.write("data: [DONE]\n\n");
-      res.end();
+      try {
+        res.write(`data: ${JSON.stringify({ error: "Failed to generate debate" })}\n\n`);
+        res.write("data: [DONE]\n\n");
+        res.end();
+      } catch (e) {
+        // Response already ended
+      }
     }
   });
 
