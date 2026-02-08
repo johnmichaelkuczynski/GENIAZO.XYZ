@@ -8,6 +8,7 @@ import Anthropic from "@anthropic-ai/sdk";
 import * as sdk from "microsoft-cognitiveservices-speech-sdk";
 import { buildSystemPrompt } from "./prompt-builder";
 import { findRelevantVerse } from "./bible-verses";
+import { createTracker, extractPositionsFromUpload, analyzeChunkForClaims, updateTracker, formatAntiRepetitionPrompt, formatUnusedPositionsPrompt, checkExhaustion } from "./services/debateTracking";
 import { findRelevantChunks, searchPhilosophicalChunks, searchTextChunks, searchPositions, normalizeAuthorName, searchCoreDocuments, type StructuredChunk, type StructuredPosition, type CoreContent } from "./vector-search";
 import {
   insertPersonaSettingsSchema,
@@ -5620,6 +5621,49 @@ BEGIN THE DEBATE NOW. Start with ${speakerLabels[0]} making a claim:`;
         (res as any).flush();
       }
 
+      // Initialize debate tracker for anti-repetition and dataset exhaustion
+      const tracker = createTracker();
+
+      // Pre-extract positions from uploaded materials
+      const hasAnyUploads = Object.values(uploads).some((v: any) => v && v.trim().length > 50) || (paperText && paperText.trim().length > 50);
+      if (hasAnyUploads) {
+        res.write(`data: ${JSON.stringify({ status: "Analyzing uploaded source materials..." })}\n\n`);
+        if (typeof (res as any).flush === 'function') (res as any).flush();
+
+        const extractionPromises: Promise<void>[] = [];
+
+        // Extract from per-debater uploads
+        for (const thinker of thinkers) {
+          const uploadedText = uploads[thinker.id];
+          if (uploadedText && uploadedText.trim().length > 50) {
+            extractionPromises.push(
+              extractPositionsFromUpload(uploadedText, thinker.id, thinker.name, "dedicated").then(positions => {
+                tracker.positions.push(...positions);
+                console.log(`[Debate] Extracted ${positions.length} positions from ${thinker.name}'s dedicated material`);
+              })
+            );
+          }
+        }
+
+        // Extract from shared material
+        if (paperText && paperText.trim().length > 50) {
+          extractionPromises.push(
+            extractPositionsFromUpload(paperText, "shared", "Shared", "shared").then(positions => {
+              tracker.positions.push(...positions);
+              console.log(`[Debate] Extracted ${positions.length} positions from shared material`);
+            })
+          );
+        }
+
+        await Promise.all(extractionPromises);
+        console.log(`[Debate] Total tracked positions: ${tracker.positions.length}`);
+
+        if (tracker.positions.length > 0) {
+          res.write(`data: ${JSON.stringify({ status: `Tracking ${tracker.positions.length} source positions for exhaustive coverage...` })}\n\n`);
+          if (typeof (res as any).flush === 'function') (res as any).flush();
+        }
+      }
+
       if (!anthropic) {
         res.write(`data: ${JSON.stringify({ error: "Anthropic API not configured" })}\n\n`);
         res.write("data: [DONE]\n\n");
@@ -5633,6 +5677,7 @@ BEGIN THE DEBATE NOW. Start with ${speakerLabels[0]} making a claim:`;
       let totalContent = "";
       let totalWords = 0;
       let chunkNumber = 0;
+      let prevContentLength = 0;
       const WORDS_PER_CHUNK = 2500;
       const MAX_CHUNKS = 50;
 
@@ -5645,18 +5690,24 @@ BEGIN THE DEBATE NOW. Start with ${speakerLabels[0]} making a claim:`;
         let chunkPrompt = "";
 
         if (chunkNumber === 1) {
-          chunkPrompt = fullPrompt;
+          // First chunk: include full prompt + initial unused positions guidance
+          const initialUnused = formatUnusedPositionsPrompt(tracker, thinkers.map(t => ({ id: t.id, name: t.name })));
+          chunkPrompt = fullPrompt + initialUnused;
         } else {
+          // Continuation chunks: include anti-repetition log + unused positions
+          const antiRepPrompt = formatAntiRepetitionPrompt(tracker);
+          const unusedPrompt = formatUnusedPositionsPrompt(tracker, thinkers.map(t => ({ id: t.id, name: t.name })));
+
           chunkPrompt = `Continue the philosophical debate. Write ${chunkTarget} more words.
 
 CRITICAL: Maintain DIALOGUE FORMAT. Each turn is ${speakerLabelInstructions} followed by 2-4 sentences.
 Speaker rotation order: ${speakerList}. 
 NO essays. NO paragraphs. Just back-and-forth dialogue with real pushback.
-
+${antiRepPrompt}${unusedPrompt}
 Here's where we left off:
 ${totalContent.slice(-1500)}
 
-Continue the debate with NEW arguments. The next speaker should respond to what was just said:`;
+Continue the debate with GENUINELY NEW arguments and perspectives. The next speaker should respond to what was just said. Do NOT restate points from the anti-repetition log above:`;
         }
 
         const stream = await anthropic.messages.create({
@@ -5682,8 +5733,32 @@ Continue the debate with NEW arguments. The next speaker should respond to what 
           (res as any).flush();
         }
 
+        const currentContentLength = totalContent.length;
         totalWords = totalContent.split(/\s+/).filter((w: string) => w.length > 0).length;
         console.log(`[Debate] Chunk ${chunkNumber}: ${totalWords} words total`);
+
+        // Post-chunk analysis: extract claims and track position usage
+        if (tracker.positions.length > 0 || chunkNumber > 1) {
+          try {
+            const chunkText = chunkNumber === 1 ? totalContent : totalContent.slice(-(totalContent.length - prevContentLength));
+            const { newClaims, positionsUsed } = await analyzeChunkForClaims(
+              chunkText, chunkNumber, speakerLabels, tracker
+            );
+            updateTracker(tracker, newClaims, positionsUsed);
+            console.log(`[Debate] Chunk ${chunkNumber} analysis: ${newClaims.length} new claims, ${positionsUsed.length} positions used. Total claims: ${tracker.claimsLog.length}`);
+
+            // Check for dataset exhaustion
+            const exhaustion = checkExhaustion(tracker, thinkers.map(t => ({ id: t.id, name: t.name })));
+            if (exhaustion.exhausted) {
+              console.log(`[Debate] Dataset exhaustion signal: ${exhaustion.message}`);
+              res.write(`data: ${JSON.stringify({ status: exhaustion.message, exhaustion: true })}\n\n`);
+              if (typeof (res as any).flush === 'function') (res as any).flush();
+            }
+          } catch (analysisErr) {
+            console.error(`[Debate] Post-chunk analysis error (non-fatal):`, analysisErr);
+          }
+        }
+        prevContentLength = currentContentLength;
 
         if (totalWords < targetWordLength) {
           res.write(`data: ${JSON.stringify({ status: "continuing..." })}\n\n`);

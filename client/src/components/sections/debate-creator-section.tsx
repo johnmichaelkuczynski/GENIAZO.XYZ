@@ -351,6 +351,12 @@ export function DebateCreatorSection() {
                 setDebateResult(accumulatedText);
                 updatePopup(debatePopupId, { content: accumulatedText });
               }
+              if (parsed.exhaustion) {
+                accumulatedText += `\n\n--- SOURCE MATERIAL EXHAUSTION NOTICE ---\n${parsed.status}\n---\n\n`;
+                setDebateResult(accumulatedText);
+                updatePopup(debatePopupId, { content: accumulatedText });
+                toast({ title: "Source Material Alert", description: parsed.status });
+              }
               if (parsed.error) {
                 setIsStreaming(false);
                 updatePopup(debatePopupId, { isGenerating: false });
@@ -370,6 +376,11 @@ export function DebateCreatorSection() {
             const parsed = JSON.parse(data);
             if (parsed.content) {
               accumulatedText += parsed.content;
+              setDebateResult(accumulatedText);
+              updatePopup(debatePopupId, { content: accumulatedText });
+            }
+            if (parsed.exhaustion) {
+              accumulatedText += `\n\n--- SOURCE MATERIAL EXHAUSTION NOTICE ---\n${parsed.status}\n---\n\n`;
               setDebateResult(accumulatedText);
               updatePopup(debatePopupId, { content: accumulatedText });
             }
