@@ -479,6 +479,40 @@ export function DebateCreatorSection() {
             </CardContent>
           </Card>
 
+          {/* Common Document Upload - moved to prominent position */}
+          <Card>
+            <CardHeader>
+              <CardTitle className="flex items-center gap-2 text-base">
+                <Upload className="w-4 h-4" />
+                Common Document for Debate
+              </CardTitle>
+            </CardHeader>
+            <CardContent className="space-y-3">
+              <p className="text-xs text-muted-foreground">
+                Upload a document that ALL debaters will debate about. Each debater also has their own upload area above for debater-specific material.
+              </p>
+              <DragDropUpload
+                onFileAccepted={handleGeneralFileAccepted}
+                onClear={() => { setGeneralPaperText(""); setGeneralUploadedFileName(""); }}
+                currentFileName={generalUploadedFileName}
+                accept=".txt,.md,.doc,.docx,.pdf"
+                maxSizeBytes={5 * 1024 * 1024}
+                data-testid="drag-drop-upload-debate-common"
+              />
+              <div>
+                <Label className="text-sm mb-2 block">Or paste text directly:</Label>
+                <Textarea
+                  placeholder="Paste a paper, article, or argument for all debaters to engage with..."
+                  value={generalPaperText}
+                  onChange={(e) => setGeneralPaperText(e.target.value)}
+                  rows={3}
+                  className="resize-none"
+                  data-testid="textarea-common-document-content"
+                />
+              </div>
+            </CardContent>
+          </Card>
+
           {/* Debate Mode */}
           <Card>
             <CardHeader>
@@ -560,40 +594,6 @@ export function DebateCreatorSection() {
                   : "Standard single-generation debate"
                 }
               </p>
-            </CardContent>
-          </Card>
-
-          {/* General Paper Upload */}
-          <Card>
-            <CardHeader>
-              <CardTitle className="flex items-center gap-2 text-base">
-                <Upload className="w-4 h-4" />
-                Shared Context (All Debaters)
-              </CardTitle>
-            </CardHeader>
-            <CardContent className="space-y-3">
-              <p className="text-xs text-muted-foreground">
-                This material is shared with ALL debaters. For debater-specific material, use each debater's upload area above.
-              </p>
-              <DragDropUpload
-                onFileAccepted={handleGeneralFileAccepted}
-                onClear={() => { setGeneralPaperText(""); setGeneralUploadedFileName(""); }}
-                currentFileName={generalUploadedFileName}
-                accept=".txt,.md,.doc,.docx,.pdf"
-                maxSizeBytes={5 * 1024 * 1024}
-                data-testid="drag-drop-upload-debate-general"
-              />
-              <div>
-                <Label className="text-sm mb-2 block">Or paste shared context:</Label>
-                <Textarea
-                  placeholder="Optional: paste a paper, argument, or additional context for ALL debaters..."
-                  value={generalPaperText}
-                  onChange={(e) => setGeneralPaperText(e.target.value)}
-                  rows={3}
-                  className="resize-none"
-                  data-testid="textarea-general-paper-content"
-                />
-              </div>
             </CardContent>
           </Card>
 
